@@ -1,0 +1,1134 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using NetworkMessages.FromServer;
+using TaleWorlds.Core;
+using TaleWorlds.Engine;
+using TaleWorlds.Library;
+
+namespace TaleWorlds.MountAndBlade
+{
+	// Token: 0x02000386 RID: 902
+	public class Team : IMissionTeam
+	{
+		// Token: 0x1400009E RID: 158
+		// (add) Token: 0x060033D5 RID: 13269 RVA: 0x000D4D14 File Offset: 0x000D2F14
+		// (remove) Token: 0x060033D6 RID: 13270 RVA: 0x000D4D4C File Offset: 0x000D2F4C
+		public event Action<Team, Formation> OnFormationsChanged;
+
+		// Token: 0x1400009F RID: 159
+		// (add) Token: 0x060033D7 RID: 13271 RVA: 0x000D4D84 File Offset: 0x000D2F84
+		// (remove) Token: 0x060033D8 RID: 13272 RVA: 0x000D4DBC File Offset: 0x000D2FBC
+		public event OnOrderIssuedDelegate OnOrderIssued;
+
+		// Token: 0x140000A0 RID: 160
+		// (add) Token: 0x060033D9 RID: 13273 RVA: 0x000D4DF4 File Offset: 0x000D2FF4
+		// (remove) Token: 0x060033DA RID: 13274 RVA: 0x000D4E2C File Offset: 0x000D302C
+		public event Action<Formation> OnFormationAIActiveBehaviorChanged;
+
+		// Token: 0x1700099E RID: 2462
+		// (get) Token: 0x060033DB RID: 13275 RVA: 0x000D4E61 File Offset: 0x000D3061
+		public BattleSideEnum Side { get; }
+
+		// Token: 0x1700099F RID: 2463
+		// (get) Token: 0x060033DC RID: 13276 RVA: 0x000D4E69 File Offset: 0x000D3069
+		public Mission Mission { get; }
+
+		// Token: 0x170009A0 RID: 2464
+		// (get) Token: 0x060033DD RID: 13277 RVA: 0x000D4E71 File Offset: 0x000D3071
+		// (set) Token: 0x060033DE RID: 13278 RVA: 0x000D4E79 File Offset: 0x000D3079
+		public MBList<Formation> FormationsIncludingEmpty { get; private set; }
+
+		// Token: 0x170009A1 RID: 2465
+		// (get) Token: 0x060033DF RID: 13279 RVA: 0x000D4E82 File Offset: 0x000D3082
+		// (set) Token: 0x060033E0 RID: 13280 RVA: 0x000D4E8A File Offset: 0x000D308A
+		public MBList<Formation> FormationsIncludingSpecialAndEmpty { get; private set; }
+
+		// Token: 0x170009A2 RID: 2466
+		// (get) Token: 0x060033E1 RID: 13281 RVA: 0x000D4E93 File Offset: 0x000D3093
+		// (set) Token: 0x060033E2 RID: 13282 RVA: 0x000D4E9B File Offset: 0x000D309B
+		public TeamAIComponent TeamAI { get; private set; }
+
+		// Token: 0x170009A3 RID: 2467
+		// (get) Token: 0x060033E3 RID: 13283 RVA: 0x000D4EA4 File Offset: 0x000D30A4
+		public bool IsPlayerTeam
+		{
+			get
+			{
+				return this.Mission != null && this.Mission.PlayerTeam == this;
+			}
+		}
+
+		// Token: 0x170009A4 RID: 2468
+		// (get) Token: 0x060033E4 RID: 13284 RVA: 0x000D4EBE File Offset: 0x000D30BE
+		public bool IsPlayerAlly
+		{
+			get
+			{
+				return this.Mission != null && this.Mission.PlayerTeam != null && this.Mission.PlayerTeam.Side == this.Side;
+			}
+		}
+
+		// Token: 0x170009A5 RID: 2469
+		// (get) Token: 0x060033E5 RID: 13285 RVA: 0x000D4EEF File Offset: 0x000D30EF
+		public TeamSideEnum TeamSide
+		{
+			get
+			{
+				if (this.IsPlayerTeam)
+				{
+					return TeamSideEnum.PlayerTeam;
+				}
+				if (!this.IsPlayerAlly)
+				{
+					return TeamSideEnum.EnemyTeam;
+				}
+				return TeamSideEnum.PlayerAllyTeam;
+			}
+		}
+
+		// Token: 0x170009A6 RID: 2470
+		// (get) Token: 0x060033E6 RID: 13286 RVA: 0x000D4F06 File Offset: 0x000D3106
+		public bool IsDefender
+		{
+			get
+			{
+				return this.Side == BattleSideEnum.Defender;
+			}
+		}
+
+		// Token: 0x170009A7 RID: 2471
+		// (get) Token: 0x060033E7 RID: 13287 RVA: 0x000D4F11 File Offset: 0x000D3111
+		public bool IsAttacker
+		{
+			get
+			{
+				return this.Side == BattleSideEnum.Attacker;
+			}
+		}
+
+		// Token: 0x170009A8 RID: 2472
+		// (get) Token: 0x060033E8 RID: 13288 RVA: 0x000D4F1C File Offset: 0x000D311C
+		// (set) Token: 0x060033E9 RID: 13289 RVA: 0x000D4F24 File Offset: 0x000D3124
+		public uint Color { get; private set; }
+
+		// Token: 0x170009A9 RID: 2473
+		// (get) Token: 0x060033EA RID: 13290 RVA: 0x000D4F2D File Offset: 0x000D312D
+		// (set) Token: 0x060033EB RID: 13291 RVA: 0x000D4F35 File Offset: 0x000D3135
+		public uint Color2 { get; private set; }
+
+		// Token: 0x170009AA RID: 2474
+		// (get) Token: 0x060033EC RID: 13292 RVA: 0x000D4F3E File Offset: 0x000D313E
+		public Banner Banner { get; }
+
+		// Token: 0x170009AB RID: 2475
+		// (get) Token: 0x060033ED RID: 13293 RVA: 0x000D4F46 File Offset: 0x000D3146
+		public OrderController MasterOrderController
+		{
+			get
+			{
+				return this._orderControllers[0];
+			}
+		}
+
+		// Token: 0x170009AC RID: 2476
+		// (get) Token: 0x060033EE RID: 13294 RVA: 0x000D4F54 File Offset: 0x000D3154
+		public OrderController PlayerOrderController
+		{
+			get
+			{
+				return this._orderControllers[1];
+			}
+		}
+
+		// Token: 0x170009AD RID: 2477
+		// (get) Token: 0x060033EF RID: 13295 RVA: 0x000D4F62 File Offset: 0x000D3162
+		// (set) Token: 0x060033F0 RID: 13296 RVA: 0x000D4F6A File Offset: 0x000D316A
+		public TeamQuerySystem QuerySystem { get; private set; }
+
+		// Token: 0x170009AE RID: 2478
+		// (get) Token: 0x060033F1 RID: 13297 RVA: 0x000D4F73 File Offset: 0x000D3173
+		// (set) Token: 0x060033F2 RID: 13298 RVA: 0x000D4F7B File Offset: 0x000D317B
+		public DetachmentManager DetachmentManager { get; private set; }
+
+		// Token: 0x170009AF RID: 2479
+		// (get) Token: 0x060033F3 RID: 13299 RVA: 0x000D4F84 File Offset: 0x000D3184
+		// (set) Token: 0x060033F4 RID: 13300 RVA: 0x000D4F8C File Offset: 0x000D318C
+		public bool IsPlayerGeneral { get; private set; }
+
+		// Token: 0x170009B0 RID: 2480
+		// (get) Token: 0x060033F5 RID: 13301 RVA: 0x000D4F95 File Offset: 0x000D3195
+		// (set) Token: 0x060033F6 RID: 13302 RVA: 0x000D4F9D File Offset: 0x000D319D
+		public bool IsPlayerSergeant { get; private set; }
+
+		// Token: 0x170009B1 RID: 2481
+		// (get) Token: 0x060033F7 RID: 13303 RVA: 0x000D4FA6 File Offset: 0x000D31A6
+		public MBReadOnlyList<Agent> ActiveAgents
+		{
+			get
+			{
+				return this._activeAgents;
+			}
+		}
+
+		// Token: 0x170009B2 RID: 2482
+		// (get) Token: 0x060033F8 RID: 13304 RVA: 0x000D4FAE File Offset: 0x000D31AE
+		public MBReadOnlyList<Agent> TeamAgents
+		{
+			get
+			{
+				return this._teamAgents;
+			}
+		}
+
+		// Token: 0x170009B3 RID: 2483
+		// (get) Token: 0x060033F9 RID: 13305 RVA: 0x000D4FB6 File Offset: 0x000D31B6
+		public MBReadOnlyList<ValueTuple<float, WorldPosition, int, Vec2, Vec2, bool>> CachedEnemyDataForFleeing
+		{
+			get
+			{
+				return this._cachedEnemyDataForFleeing;
+			}
+		}
+
+		// Token: 0x170009B4 RID: 2484
+		// (get) Token: 0x060033FA RID: 13306 RVA: 0x000D4FBE File Offset: 0x000D31BE
+		public int TeamIndex
+		{
+			get
+			{
+				return this.MBTeam.Index;
+			}
+		}
+
+		// Token: 0x060033FB RID: 13307 RVA: 0x000D4FCC File Offset: 0x000D31CC
+		public Team(MBTeam mbTeam, BattleSideEnum side, Mission mission, uint color = 4294967295U, uint color2 = 4294967295U, Banner banner = null)
+		{
+			this.MBTeam = mbTeam;
+			this.Side = side;
+			this.Mission = mission;
+			this.Color = color;
+			this.Color2 = color2;
+			this.Banner = banner;
+			this.IsPlayerGeneral = true;
+			this.IsPlayerSergeant = false;
+			if (this != Team._invalid)
+			{
+				this.Initialize();
+			}
+			this.MoraleChangeFactor = 1f;
+		}
+
+		// Token: 0x060033FC RID: 13308 RVA: 0x000D503C File Offset: 0x000D323C
+		public void SetCustomOrderController(OrderController customMasterOrderController, OrderController customPlayerOrderController)
+		{
+			this._alreadyHasCustomOrderController = true;
+			OrderController orderController = (this._orderControllers.Count > 0) ? this._orderControllers[0] : null;
+			object obj = (this._orderControllers.Count > 1) ? this._orderControllers[1] : null;
+			this._orderControllers.Clear();
+			this._orderControllers.Add(customMasterOrderController);
+			this._orderControllers.Add(customPlayerOrderController);
+			if (orderController != null)
+			{
+				orderController.AssignDelegatesToController(customMasterOrderController);
+			}
+			object obj2 = obj;
+			if (obj2 == null)
+			{
+				return;
+			}
+			obj2.AssignDelegatesToController(customPlayerOrderController);
+		}
+
+		// Token: 0x060033FD RID: 13309 RVA: 0x000D50C4 File Offset: 0x000D32C4
+		public void UpdateCachedEnemyDataForFleeing()
+		{
+			if (this._cachedEnemyDataForFleeing.IsEmpty<ValueTuple<float, WorldPosition, int, Vec2, Vec2, bool>>())
+			{
+				foreach (Team team in this.Mission.Teams)
+				{
+					if (team.IsEnemyOf(this))
+					{
+						foreach (Formation formation in team.FormationsIncludingSpecialAndEmpty)
+						{
+							int countOfUnits = formation.CountOfUnits;
+							if (countOfUnits > 0)
+							{
+								WorldPosition cachedMedianPosition = formation.CachedMedianPosition;
+								float movementSpeedMaximum = formation.QuerySystem.MovementSpeedMaximum;
+								bool item = (formation.QuerySystem.IsCavalryFormation || formation.QuerySystem.IsRangedCavalryFormation) && formation.HasAnyMountedUnit;
+								if (countOfUnits == 1)
+								{
+									Vec2 asVec = cachedMedianPosition.AsVec2;
+									this._cachedEnemyDataForFleeing.Add(new ValueTuple<float, WorldPosition, int, Vec2, Vec2, bool>(movementSpeedMaximum, cachedMedianPosition, countOfUnits, asVec, asVec, item));
+								}
+								else
+								{
+									Vec2 v = formation.QuerySystem.EstimatedDirection.LeftVec();
+									float f = formation.Width / 2f;
+									Vec2 item2 = cachedMedianPosition.AsVec2 - v * f;
+									Vec2 item3 = cachedMedianPosition.AsVec2 + v * f;
+									this._cachedEnemyDataForFleeing.Add(new ValueTuple<float, WorldPosition, int, Vec2, Vec2, bool>(movementSpeedMaximum, cachedMedianPosition, countOfUnits, item2, item3, item));
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Token: 0x170009B5 RID: 2485
+		// (get) Token: 0x060033FE RID: 13310 RVA: 0x000D5274 File Offset: 0x000D3474
+		// (set) Token: 0x060033FF RID: 13311 RVA: 0x000D527C File Offset: 0x000D347C
+		public float MoraleChangeFactor { get; private set; }
+
+		// Token: 0x06003400 RID: 13312 RVA: 0x000D5288 File Offset: 0x000D3488
+		private void Initialize()
+		{
+			this._activeAgents = new MBList<Agent>();
+			this._teamAgents = new MBList<Agent>();
+			this._cachedEnemyDataForFleeing = new MBList<ValueTuple<float, WorldPosition, int, Vec2, Vec2, bool>>();
+			if (!GameNetwork.IsReplay)
+			{
+				this.FormationsIncludingSpecialAndEmpty = new MBList<Formation>(10);
+				this.FormationsIncludingEmpty = new MBList<Formation>(8);
+				for (int i = 0; i < 10; i++)
+				{
+					Formation formation = new Formation(this, i);
+					this.FormationsIncludingSpecialAndEmpty.Add(formation);
+					if (i < 8)
+					{
+						this.FormationsIncludingEmpty.Add(formation);
+					}
+					formation.AI.OnActiveBehaviorChanged += this.FormationAI_OnActiveBehaviorChanged;
+				}
+				if (this.Mission != null)
+				{
+					this._orderControllers = new List<OrderController>();
+					OrderController orderController = new OrderController(this.Mission, this, null);
+					this._orderControllers.Add(orderController);
+					orderController.OnOrderIssued += this.OrderController_OnOrderIssued;
+					OrderController orderController2 = new OrderController(this.Mission, this, null);
+					this._orderControllers.Add(orderController2);
+					orderController2.OnOrderIssued += this.OrderController_OnOrderIssued;
+				}
+				this.QuerySystem = new TeamQuerySystem(this);
+				this.DetachmentManager = new DetachmentManager(this);
+			}
+		}
+
+		// Token: 0x06003401 RID: 13313 RVA: 0x000D53A4 File Offset: 0x000D35A4
+		public void Reset()
+		{
+			if (!GameNetwork.IsReplay)
+			{
+				foreach (Formation formation in this.FormationsIncludingSpecialAndEmpty)
+				{
+					formation.Reset();
+				}
+				List<OrderController> orderControllers = this._orderControllers;
+				if (orderControllers != null && orderControllers.Count > 2)
+				{
+					for (int i = this._orderControllers.Count - 1; i >= 2; i--)
+					{
+						this._orderControllers[i].OnOrderIssued -= this.OrderController_OnOrderIssued;
+						this._orderControllers.RemoveAt(i);
+					}
+				}
+				this.QuerySystem = new TeamQuerySystem(this);
+			}
+			this._teamAgents.Clear();
+			this._activeAgents.Clear();
+		}
+
+		// Token: 0x06003402 RID: 13314 RVA: 0x000D5478 File Offset: 0x000D3678
+		public void Clear()
+		{
+			if (!GameNetwork.IsReplay)
+			{
+				foreach (Formation formation in this.FormationsIncludingSpecialAndEmpty)
+				{
+					formation.AI.OnActiveBehaviorChanged -= this.FormationAI_OnActiveBehaviorChanged;
+				}
+			}
+			this.Reset();
+		}
+
+		// Token: 0x06003403 RID: 13315 RVA: 0x000D54E8 File Offset: 0x000D36E8
+		private void OrderController_OnOrderIssued(OrderType orderType, MBReadOnlyList<Formation> appliedFormations, OrderController orderController, params object[] delegateParams)
+		{
+			OnOrderIssuedDelegate onOrderIssued = this.OnOrderIssued;
+			if (onOrderIssued == null)
+			{
+				return;
+			}
+			onOrderIssued(orderType, appliedFormations, orderController, delegateParams);
+		}
+
+		// Token: 0x06003404 RID: 13316 RVA: 0x000D54FF File Offset: 0x000D36FF
+		public static bool DoesFirstFormationClassContainSecond(FormationClass f1, FormationClass f2)
+		{
+			return (f1 & f2) == f2;
+		}
+
+		// Token: 0x06003405 RID: 13317 RVA: 0x000D5507 File Offset: 0x000D3707
+		public static FormationClass GetFormationFormationClass(Formation f)
+		{
+			if (f.QuerySystem.IsRangedCavalryFormation)
+			{
+				return FormationClass.HorseArcher;
+			}
+			if (f.QuerySystem.IsCavalryFormation)
+			{
+				return FormationClass.Cavalry;
+			}
+			if (!f.QuerySystem.IsRangedFormation)
+			{
+				return FormationClass.Infantry;
+			}
+			return FormationClass.Ranged;
+		}
+
+		// Token: 0x06003406 RID: 13318 RVA: 0x000D5537 File Offset: 0x000D3737
+		public static FormationClass GetPlayerTeamFormationClass(Agent mainAgent)
+		{
+			if (mainAgent.IsRangedCached && mainAgent.HasMount)
+			{
+				return FormationClass.HorseArcher;
+			}
+			if (mainAgent.IsRangedCached)
+			{
+				return FormationClass.Ranged;
+			}
+			if (!mainAgent.HasMount)
+			{
+				return FormationClass.Infantry;
+			}
+			return FormationClass.Cavalry;
+		}
+
+		// Token: 0x06003407 RID: 13319 RVA: 0x000D5560 File Offset: 0x000D3760
+		public void AssignPlayerAsSergeantOfFormation(MissionPeer peer, FormationClass formationClass)
+		{
+			Formation formation = this.GetFormation(formationClass);
+			formation.PlayerOwner = peer.ControlledAgent;
+			formation.BannerCode = peer.Peer.BannerCode;
+			if (peer.IsMine)
+			{
+				this.PlayerOrderController.Owner = peer.ControlledAgent;
+			}
+			else
+			{
+				this.GetOrderControllerOf(peer.ControlledAgent).Owner = peer.ControlledAgent;
+			}
+			formation.SetControlledByAI(false, false);
+			foreach (MissionBehavior missionBehavior in this.Mission.MissionBehaviors)
+			{
+				missionBehavior.OnAssignPlayerAsSergeantOfFormation(peer.ControlledAgent);
+			}
+			if (peer.IsMine)
+			{
+				this.PlayerOrderController.SelectAllFormations(false);
+			}
+			peer.ControlledFormation = formation;
+			if (GameNetwork.IsServer)
+			{
+				peer.ControlledAgent.ForceUpdateCachedAndFormationValues(false, false);
+				if (!peer.IsMine)
+				{
+					GameNetwork.BeginModuleEventAsServer(peer.GetNetworkPeer());
+					GameNetwork.WriteMessage(new AssignFormationToPlayer(peer.GetNetworkPeer(), formationClass));
+					GameNetwork.EndModuleEventAsServer();
+				}
+			}
+		}
+
+		// Token: 0x06003408 RID: 13320 RVA: 0x000D5674 File Offset: 0x000D3874
+		private void FormationAI_OnActiveBehaviorChanged(Formation formation)
+		{
+			if (formation.CountOfUnits > 0)
+			{
+				Action<Formation> onFormationAIActiveBehaviorChanged = this.OnFormationAIActiveBehaviorChanged;
+				if (onFormationAIActiveBehaviorChanged == null)
+				{
+					return;
+				}
+				onFormationAIActiveBehaviorChanged(formation);
+			}
+		}
+
+		// Token: 0x06003409 RID: 13321 RVA: 0x000D5690 File Offset: 0x000D3890
+		public void AddTacticOption(TacticComponent tacticOption)
+		{
+			if (this.HasTeamAi)
+			{
+				this.TeamAI.AddTacticOption(tacticOption);
+			}
+		}
+
+		// Token: 0x0600340A RID: 13322 RVA: 0x000D56A6 File Offset: 0x000D38A6
+		public void RemoveTacticOption(Type tacticType)
+		{
+			if (this.HasTeamAi)
+			{
+				this.TeamAI.RemoveTacticOption(tacticType);
+			}
+		}
+
+		// Token: 0x0600340B RID: 13323 RVA: 0x000D56BC File Offset: 0x000D38BC
+		public void ClearTacticOptions()
+		{
+			if (this.HasTeamAi)
+			{
+				this.TeamAI.ClearTacticOptions();
+			}
+		}
+
+		// Token: 0x0600340C RID: 13324 RVA: 0x000D56D1 File Offset: 0x000D38D1
+		public void ResetTactic()
+		{
+			if (this.HasTeamAi)
+			{
+				this.TeamAI.ResetTactic(true);
+			}
+		}
+
+		// Token: 0x0600340D RID: 13325 RVA: 0x000D56E8 File Offset: 0x000D38E8
+		public void AddTeamAI(TeamAIComponent teamAI, bool forceNotAIControlled = false)
+		{
+			this.TeamAI = teamAI;
+			foreach (Formation formation in this.FormationsIncludingSpecialAndEmpty)
+			{
+				formation.SetControlledByAI(!forceNotAIControlled && (this != this.Mission.PlayerTeam || !this.IsPlayerGeneral), false);
+			}
+			this.TeamAI.InitializeDetachments(this.Mission);
+			this.TeamAI.CreateMissionSpecificBehaviors();
+			this.TeamAI.ResetTactic(true);
+			foreach (Formation formation2 in this.FormationsIncludingSpecialAndEmpty)
+			{
+				if (formation2.CountOfUnits > 0)
+				{
+					formation2.AI.Tick();
+				}
+			}
+			this.TeamAI.TickOccasionally();
+		}
+
+		// Token: 0x0600340E RID: 13326 RVA: 0x000D57E4 File Offset: 0x000D39E4
+		public void DelegateCommandToAI()
+		{
+			foreach (Formation formation in this.FormationsIncludingEmpty)
+			{
+				formation.SetControlledByAI(true, false);
+			}
+		}
+
+		// Token: 0x0600340F RID: 13327 RVA: 0x000D5838 File Offset: 0x000D3A38
+		public void RearrangeFormationsAccordingToFilter([TupleElementNames(new string[]
+		{
+			"formation",
+			"troopCount",
+			"troopFilter",
+			"excludedAgents"
+		})] List<ValueTuple<Formation, int, TroopTraitsMask, List<Agent>>> MassTransferData)
+		{
+			List<Formation> list = new List<Formation>();
+			foreach (ValueTuple<Formation, int, TroopTraitsMask, List<Agent>> valueTuple in MassTransferData)
+			{
+				valueTuple.Item1.OnMassUnitTransferStart();
+				if (valueTuple.Item1.GetReadonlyMovementOrderReference() == MovementOrder.MovementOrderStop && valueTuple.Item1.CountOfUnits > 0)
+				{
+					list.Add(valueTuple.Item1);
+					valueTuple.Item1.SetMovementOrder(MovementOrder.MovementOrderMove(valueTuple.Item1.CreateNewOrderWorldPosition(WorldPosition.WorldPositionEnforcedCache.None)));
+				}
+			}
+			List<Agent>[] array = new List<Agent>[MassTransferData.Count];
+			for (int i = 0; i < array.Length; i++)
+			{
+				array[i] = new List<Agent>();
+			}
+			List<FormationPocket> list2 = new List<FormationPocket>();
+			for (int j = 0; j < MassTransferData.Count; j++)
+			{
+				TroopTraitsMask item = MassTransferData[j].Item3;
+				Func<Agent, int> priorityFunction;
+				TroopFilteringUtilities.GetPriorityFunction(item, out priorityFunction);
+				int maxPriority = TroopFilteringUtilities.GetMaxPriority(item);
+				list2.Add(new FormationPocket(priorityFunction, maxPriority, MassTransferData[j].Item2, j));
+			}
+			list2.RemoveAll((FormationPocket pfamv) => pfamv.TroopCount <= 0);
+			list2 = (from pfamv in list2
+			orderby pfamv.TroopCount
+			select pfamv).ToList<FormationPocket>();
+			list2 = (from pfamv in list2
+			orderby pfamv.ScoreToSeek descending
+			select pfamv).ToList<FormationPocket>();
+			List<IFormationUnit> list3 = new List<IFormationUnit>();
+			list3 = MassTransferData.SelectMany(([TupleElementNames(new string[]
+			{
+				"formation",
+				"troopCount",
+				"troopFilter",
+				"excludedAgents"
+			})] ValueTuple<Formation, int, TroopTraitsMask, List<Agent>> mtd) => mtd.Item1.DetachedUnits.Concat(mtd.Item1.Arrangement.GetAllUnits()).Except(mtd.Item4)).ToList<IFormationUnit>();
+			int num = MassTransferData.Sum(([TupleElementNames(new string[]
+			{
+				"formation",
+				"troopCount",
+				"troopFilter",
+				"excludedAgents"
+			})] ValueTuple<Formation, int, TroopTraitsMask, List<Agent>> mtd) => mtd.Item4.Count);
+			int k = MassTransferData.Sum(([TupleElementNames(new string[]
+			{
+				"formation",
+				"troopCount",
+				"troopFilter",
+				"excludedAgents"
+			})] ValueTuple<Formation, int, TroopTraitsMask, List<Agent>> mtd) => mtd.Item1.CountOfUnits) - num;
+			int scoreToSeek = list2[0].ScoreToSeek;
+			while (k > 0)
+			{
+				for (int l = 0; l < k; l++)
+				{
+					Agent agent = list3[l] as Agent;
+					for (int m = 0; m < list2.Count; m++)
+					{
+						FormationPocket formationPocket = list2[m];
+						int num2 = formationPocket.PriorityFunction(agent);
+						if (scoreToSeek <= formationPocket.ScoreToSeek && num2 >= scoreToSeek)
+						{
+							array[formationPocket.Index].Add(agent);
+							formationPocket.AddTroop();
+							if (formationPocket.IsFormationPocketFilled())
+							{
+								list2.RemoveAt(m);
+							}
+							k--;
+							list3[l] = list3[k];
+							l--;
+							break;
+						}
+						if (num2 > formationPocket.BestScoreSoFar)
+						{
+							formationPocket.SetBestScoreSoFar(num2);
+						}
+					}
+				}
+				if (list2.Count == 0)
+				{
+					break;
+				}
+				for (int n = 0; n < list2.Count; n++)
+				{
+					list2[n].UpdateScoreToSeek();
+				}
+				from pfamv in list2
+				orderby pfamv.ScoreToSeek descending
+				select pfamv;
+				scoreToSeek = list2[0].ScoreToSeek;
+			}
+			for (int num3 = 0; num3 < array.Length; num3++)
+			{
+				foreach (Agent agent2 in array[num3])
+				{
+					agent2.Formation = MassTransferData[num3].Item1;
+				}
+			}
+			foreach (ValueTuple<Formation, int, TroopTraitsMask, List<Agent>> valueTuple2 in MassTransferData)
+			{
+				this.TriggerOnFormationsChanged(valueTuple2.Item1);
+				valueTuple2.Item1.OnMassUnitTransferEnd();
+				if (valueTuple2.Item1.CountOfUnits > 0 && !valueTuple2.Item1.OrderPositionIsValid)
+				{
+					Vec2 averagePositionOfUnits = valueTuple2.Item1.GetAveragePositionOfUnits(false, false);
+					float terrainHeight = this.Mission.Scene.GetTerrainHeight(averagePositionOfUnits, true);
+					this.Mission.Scene.GetHeightAtPoint(averagePositionOfUnits, BodyFlags.None, ref terrainHeight);
+					Vec3 position = new Vec3(averagePositionOfUnits, terrainHeight, -1f);
+					WorldPosition value = new WorldPosition(this.Mission.Scene, UIntPtr.Zero, position, false);
+					valueTuple2.Item1.SetPositioning(new WorldPosition?(value), null, null);
+				}
+			}
+			foreach (Formation formation in list)
+			{
+				formation.SetMovementOrder(MovementOrder.MovementOrderStop);
+			}
+		}
+
+		// Token: 0x170009B6 RID: 2486
+		// (get) Token: 0x06003410 RID: 13328 RVA: 0x000D5D44 File Offset: 0x000D3F44
+		// (set) Token: 0x06003411 RID: 13329 RVA: 0x000D5D4C File Offset: 0x000D3F4C
+		public Formation GeneralsFormation { get; set; }
+
+		// Token: 0x170009B7 RID: 2487
+		// (get) Token: 0x06003412 RID: 13330 RVA: 0x000D5D55 File Offset: 0x000D3F55
+		// (set) Token: 0x06003413 RID: 13331 RVA: 0x000D5D5D File Offset: 0x000D3F5D
+		public Formation BodyGuardFormation { get; set; }
+
+		// Token: 0x170009B8 RID: 2488
+		// (get) Token: 0x06003414 RID: 13332 RVA: 0x000D5D66 File Offset: 0x000D3F66
+		// (set) Token: 0x06003415 RID: 13333 RVA: 0x000D5D6E File Offset: 0x000D3F6E
+		public Agent GeneralAgent { get; set; }
+
+		// Token: 0x06003416 RID: 13334 RVA: 0x000D5D78 File Offset: 0x000D3F78
+		public void Tick(float dt)
+		{
+			if (!this._cachedEnemyDataForFleeing.IsEmpty<ValueTuple<float, WorldPosition, int, Vec2, Vec2, bool>>())
+			{
+				this._cachedEnemyDataForFleeing.Clear();
+			}
+			if (this.Mission.AllowAiTicking)
+			{
+				if (this.Mission.RetreatSide != BattleSideEnum.None && this.Side == this.Mission.RetreatSide)
+				{
+					using (List<Formation>.Enumerator enumerator = this.FormationsIncludingSpecialAndEmpty.GetEnumerator())
+					{
+						while (enumerator.MoveNext())
+						{
+							Formation formation = enumerator.Current;
+							if (formation.CountOfUnits > 0)
+							{
+								formation.SetMovementOrder(MovementOrder.MovementOrderRetreat);
+							}
+						}
+						goto IL_A8;
+					}
+				}
+				if (this.TeamAI != null && this.HasBots)
+				{
+					this.TeamAI.Tick(dt);
+				}
+			}
+			IL_A8:
+			if (!GameNetwork.IsReplay)
+			{
+				if (this._tickDetachments)
+				{
+					this.DetachmentManager.TickDetachments();
+				}
+				foreach (Formation formation2 in this.FormationsIncludingSpecialAndEmpty)
+				{
+					if (formation2.CountOfUnits > 0)
+					{
+						formation2.Tick(dt);
+					}
+				}
+			}
+		}
+
+		// Token: 0x06003417 RID: 13335 RVA: 0x000D5EA4 File Offset: 0x000D40A4
+		public Formation GetFormation(FormationClass formationIndex)
+		{
+			return this.FormationsIncludingSpecialAndEmpty[(int)formationIndex];
+		}
+
+		// Token: 0x06003418 RID: 13336 RVA: 0x000D5EB4 File Offset: 0x000D40B4
+		public void SetIsEnemyOf(Team otherTeam, bool isEnemyOf)
+		{
+			this.MBTeam.SetIsEnemyOf(otherTeam.MBTeam, isEnemyOf);
+			if (GameNetwork.IsServerOrRecorder)
+			{
+				GameNetwork.BeginBroadcastModuleEvent();
+				GameNetwork.WriteMessage(new TeamSetIsEnemyOf(this.TeamIndex, otherTeam.TeamIndex, isEnemyOf));
+				GameNetwork.EndBroadcastModuleEvent(GameNetwork.EventBroadcastFlags.AddToMissionRecord, null);
+			}
+		}
+
+		// Token: 0x06003419 RID: 13337 RVA: 0x000D5F04 File Offset: 0x000D4104
+		public bool IsEnemyOf(Team otherTeam)
+		{
+			return this.MBTeam.IsEnemyOf(otherTeam.MBTeam);
+		}
+
+		// Token: 0x0600341A RID: 13338 RVA: 0x000D5F28 File Offset: 0x000D4128
+		public bool IsFriendOf(Team otherTeam)
+		{
+			return this == otherTeam || !this.MBTeam.IsEnemyOf(otherTeam.MBTeam);
+		}
+
+		// Token: 0x170009B9 RID: 2489
+		// (get) Token: 0x0600341B RID: 13339 RVA: 0x000D5F52 File Offset: 0x000D4152
+		public IEnumerable<Agent> Heroes
+		{
+			get
+			{
+				Agent main = Agent.Main;
+				if (main != null && main.Team == this)
+				{
+					yield return main;
+				}
+				yield break;
+			}
+		}
+
+		// Token: 0x0600341C RID: 13340 RVA: 0x000D5F62 File Offset: 0x000D4162
+		public void AddAgentToTeam(Agent unit)
+		{
+			this._teamAgents.Add(unit);
+			this._activeAgents.Add(unit);
+		}
+
+		// Token: 0x0600341D RID: 13341 RVA: 0x000D5F7C File Offset: 0x000D417C
+		public void RemoveAgentFromTeam(Agent unit)
+		{
+			this._teamAgents.Remove(unit);
+			this._activeAgents.Remove(unit);
+		}
+
+		// Token: 0x0600341E RID: 13342 RVA: 0x000D5F98 File Offset: 0x000D4198
+		public void DeactivateAgent(Agent agent)
+		{
+			this._activeAgents.Remove(agent);
+		}
+
+		// Token: 0x0600341F RID: 13343 RVA: 0x000D5FA8 File Offset: 0x000D41A8
+		public void OnAgentRemoved(Agent agent)
+		{
+			if (!GameNetwork.IsClientOrReplay)
+			{
+				foreach (Formation formation in this.FormationsIncludingSpecialAndEmpty)
+				{
+					formation.AI.OnAgentRemoved(agent);
+				}
+			}
+		}
+
+		// Token: 0x170009BA RID: 2490
+		// (get) Token: 0x06003420 RID: 13344 RVA: 0x000D6008 File Offset: 0x000D4208
+		public bool HasBots
+		{
+			get
+			{
+				foreach (Agent agent in this.ActiveAgents)
+				{
+					if (!agent.IsMount && !agent.IsPlayerControlled)
+					{
+						return true;
+					}
+				}
+				return false;
+			}
+		}
+
+		// Token: 0x170009BB RID: 2491
+		// (get) Token: 0x06003421 RID: 13345 RVA: 0x000D606C File Offset: 0x000D426C
+		public Agent Leader
+		{
+			get
+			{
+				if (Agent.Main != null && Agent.Main.Team == this)
+				{
+					return Agent.Main;
+				}
+				Agent agent = null;
+				foreach (Agent agent2 in this.ActiveAgents)
+				{
+					if (agent == null || agent2.IsHero)
+					{
+						agent = agent2;
+						if (agent.IsHero)
+						{
+							break;
+						}
+					}
+				}
+				return agent;
+			}
+		}
+
+		// Token: 0x170009BC RID: 2492
+		// (get) Token: 0x06003422 RID: 13346 RVA: 0x000D60EC File Offset: 0x000D42EC
+		// (set) Token: 0x06003423 RID: 13347 RVA: 0x000D610C File Offset: 0x000D430C
+		public static Team Invalid
+		{
+			get
+			{
+				Team result;
+				if ((result = Team._invalid) == null)
+				{
+					result = (Team._invalid = new Team(MBTeam.InvalidTeam, BattleSideEnum.None, null, uint.MaxValue, uint.MaxValue, null));
+				}
+				return result;
+			}
+			internal set
+			{
+				Team._invalid = value;
+			}
+		}
+
+		// Token: 0x170009BD RID: 2493
+		// (get) Token: 0x06003424 RID: 13348 RVA: 0x000D6114 File Offset: 0x000D4314
+		public bool IsValid
+		{
+			get
+			{
+				return this.MBTeam.IsValid;
+			}
+		}
+
+		// Token: 0x06003425 RID: 13349 RVA: 0x000D6130 File Offset: 0x000D4330
+		public override string ToString()
+		{
+			return this.MBTeam.ToString();
+		}
+
+		// Token: 0x170009BE RID: 2494
+		// (get) Token: 0x06003426 RID: 13350 RVA: 0x000D6151 File Offset: 0x000D4351
+		public bool HasTeamAi
+		{
+			get
+			{
+				return this.TeamAI != null;
+			}
+		}
+
+		// Token: 0x06003427 RID: 13351 RVA: 0x000D615C File Offset: 0x000D435C
+		public void OnMissionEnded()
+		{
+			if (this.HasTeamAi)
+			{
+				this.TeamAI.OnMissionEnded();
+			}
+		}
+
+		// Token: 0x06003428 RID: 13352 RVA: 0x000D6171 File Offset: 0x000D4371
+		public void TriggerOnFormationsChanged(Formation formation)
+		{
+			Action<Team, Formation> onFormationsChanged = this.OnFormationsChanged;
+			if (onFormationsChanged == null)
+			{
+				return;
+			}
+			onFormationsChanged(this, formation);
+		}
+
+		// Token: 0x06003429 RID: 13353 RVA: 0x000D6188 File Offset: 0x000D4388
+		public OrderController GetOrderControllerOf(Agent agent)
+		{
+			OrderController orderController = this._orderControllers.FirstOrDefault((OrderController oc) => oc.Owner == agent);
+			if (orderController == null)
+			{
+				orderController = new OrderController(this.Mission, this, agent);
+				this._orderControllers.Add(orderController);
+				orderController.OnOrderIssued += this.OrderController_OnOrderIssued;
+			}
+			return orderController;
+		}
+
+		// Token: 0x0600342A RID: 13354 RVA: 0x000D61F0 File Offset: 0x000D43F0
+		public void SetPlayerRole(bool isPlayerGeneral, bool isPlayerSergeant)
+		{
+			this.IsPlayerGeneral = isPlayerGeneral;
+			this.IsPlayerSergeant = isPlayerSergeant;
+			foreach (Formation formation in this.FormationsIncludingSpecialAndEmpty)
+			{
+				formation.SetControlledByAI(this != this.Mission.PlayerTeam || !this.IsPlayerGeneral, false);
+			}
+		}
+
+		// Token: 0x0600342B RID: 13355 RVA: 0x000D626C File Offset: 0x000D446C
+		public bool HasAnyEnemyTeamsWithAgents(bool ignoreMountedAgents)
+		{
+			foreach (Team team in this.Mission.Teams)
+			{
+				if (team != this && team.IsEnemyOf(this) && team.ActiveAgents.Count > 0)
+				{
+					if (ignoreMountedAgents)
+					{
+						using (List<Agent>.Enumerator enumerator2 = team.ActiveAgents.GetEnumerator())
+						{
+							while (enumerator2.MoveNext())
+							{
+								if (!enumerator2.Current.HasMount)
+								{
+									return true;
+								}
+							}
+							continue;
+						}
+					}
+					return true;
+				}
+			}
+			return false;
+		}
+
+		// Token: 0x0600342C RID: 13356 RVA: 0x000D6328 File Offset: 0x000D4528
+		public bool HasAnyFormationsIncludingSpecialThatIsNotEmpty()
+		{
+			using (List<Formation>.Enumerator enumerator = this.FormationsIncludingSpecialAndEmpty.GetEnumerator())
+			{
+				while (enumerator.MoveNext())
+				{
+					if (enumerator.Current.CountOfUnits > 0)
+					{
+						return true;
+					}
+				}
+			}
+			return false;
+		}
+
+		// Token: 0x0600342D RID: 13357 RVA: 0x000D6384 File Offset: 0x000D4584
+		public int GetFormationCount()
+		{
+			int num = 0;
+			using (List<Formation>.Enumerator enumerator = this.FormationsIncludingEmpty.GetEnumerator())
+			{
+				while (enumerator.MoveNext())
+				{
+					if (enumerator.Current.CountOfUnits > 0)
+					{
+						num++;
+					}
+				}
+			}
+			return num;
+		}
+
+		// Token: 0x0600342E RID: 13358 RVA: 0x000D63E0 File Offset: 0x000D45E0
+		public int GetAIControlledFormationCount()
+		{
+			int num = 0;
+			foreach (Formation formation in this.FormationsIncludingEmpty)
+			{
+				if (formation.CountOfUnits > 0 && formation.IsAIControlled)
+				{
+					num++;
+				}
+			}
+			return num;
+		}
+
+		// Token: 0x0600342F RID: 13359 RVA: 0x000D6444 File Offset: 0x000D4644
+		public Vec2 GetAveragePositionOfEnemies()
+		{
+			Vec2 vec = Vec2.Zero;
+			int num = 0;
+			foreach (Team team in this.Mission.Teams)
+			{
+				if (team.MBTeam.IsValid && this.IsEnemyOf(team))
+				{
+					foreach (Agent agent in team.ActiveAgents)
+					{
+						vec += agent.Position.AsVec2;
+						num++;
+					}
+				}
+			}
+			if (num > 0)
+			{
+				vec *= 1f / (float)num;
+				return vec;
+			}
+			return Vec2.Invalid;
+		}
+
+		// Token: 0x06003430 RID: 13360 RVA: 0x000D652C File Offset: 0x000D472C
+		public Vec2 GetAveragePosition()
+		{
+			Vec2 vec = Vec2.Zero;
+			List<Agent> activeAgents = this.ActiveAgents;
+			int num = 0;
+			foreach (Agent agent in activeAgents)
+			{
+				vec += agent.Position.AsVec2;
+				num++;
+			}
+			if (num > 0)
+			{
+				vec *= 1f / (float)num;
+			}
+			else
+			{
+				vec = Vec2.Invalid;
+			}
+			return vec;
+		}
+
+		// Token: 0x06003431 RID: 13361 RVA: 0x000D65B8 File Offset: 0x000D47B8
+		public WorldPosition GetMedianPosition(Vec2 averagePosition)
+		{
+			float num = float.MaxValue;
+			Agent agent = null;
+			foreach (Agent agent2 in this.ActiveAgents)
+			{
+				float num2 = agent2.Position.AsVec2.DistanceSquared(averagePosition);
+				if (num2 <= num)
+				{
+					agent = agent2;
+					num = num2;
+				}
+			}
+			if (agent == null)
+			{
+				return WorldPosition.Invalid;
+			}
+			return agent.GetWorldPosition();
+		}
+
+		// Token: 0x06003432 RID: 13362 RVA: 0x000D6640 File Offset: 0x000D4840
+		public Vec2 GetWeightedAverageOfEnemies(Vec2 basePoint)
+		{
+			Vec2 vec = Vec2.Zero;
+			float num = 0f;
+			foreach (Team team in this.Mission.Teams)
+			{
+				if (team.MBTeam.IsValid && this.IsEnemyOf(team))
+				{
+					foreach (Agent agent in team.ActiveAgents)
+					{
+						Vec2 asVec = agent.Position.AsVec2;
+						float lengthSquared = (basePoint - asVec).LengthSquared;
+						float num2 = 1f / lengthSquared;
+						vec += asVec * num2;
+						num += num2;
+					}
+				}
+			}
+			if (num > 0f)
+			{
+				vec *= 1f / num;
+				return vec;
+			}
+			return Vec2.Invalid;
+		}
+
+		// Token: 0x06003433 RID: 13363 RVA: 0x000D6758 File Offset: 0x000D4958
+		public void DisableDetachmentTicking()
+		{
+			this._tickDetachments = false;
+		}
+
+		// Token: 0x06003434 RID: 13364 RVA: 0x000D6761 File Offset: 0x000D4961
+		[Conditional("DEBUG")]
+		private void TickStandingPointDebug()
+		{
+		}
+
+		// Token: 0x040015DE RID: 5598
+		public readonly MBTeam MBTeam;
+
+		// Token: 0x040015E7 RID: 5607
+		private List<OrderController> _orderControllers;
+
+		// Token: 0x040015EC RID: 5612
+		private MBList<Agent> _activeAgents;
+
+		// Token: 0x040015ED RID: 5613
+		private MBList<Agent> _teamAgents;
+
+		// Token: 0x040015EE RID: 5614
+		private bool _tickDetachments = true;
+
+		// Token: 0x040015EF RID: 5615
+		private MBList<ValueTuple<float, WorldPosition, int, Vec2, Vec2, bool>> _cachedEnemyDataForFleeing;
+
+		// Token: 0x040015F0 RID: 5616
+		private bool _alreadyHasCustomOrderController;
+
+		// Token: 0x040015F5 RID: 5621
+		private static Team _invalid;
+	}
+}
