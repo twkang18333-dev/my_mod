@@ -1,0 +1,70 @@
+using System;
+using System.Collections.Generic;
+using TaleWorlds.Core;
+using TaleWorlds.Library;
+
+namespace TaleWorlds.MountAndBlade
+{
+	// Token: 0x0200028C RID: 652
+	public abstract class MissionLogic : MissionBehavior
+	{
+		// Token: 0x17000720 RID: 1824
+		// (get) Token: 0x0600245B RID: 9307 RVA: 0x000836BA File Offset: 0x000818BA
+		public override MissionBehaviorType BehaviorType
+		{
+			get
+			{
+				return MissionBehaviorType.Logic;
+			}
+		}
+
+		// Token: 0x0600245C RID: 9308 RVA: 0x000836BD File Offset: 0x000818BD
+		public virtual InquiryData OnEndMissionRequest(out bool canLeave)
+		{
+			canLeave = true;
+			return null;
+		}
+
+		// Token: 0x0600245D RID: 9309 RVA: 0x000836C3 File Offset: 0x000818C3
+		public virtual bool MissionEnded(ref MissionResult missionResult)
+		{
+			return false;
+		}
+
+		// Token: 0x0600245E RID: 9310 RVA: 0x000836C6 File Offset: 0x000818C6
+		public virtual void OnBattleEnded()
+		{
+		}
+
+		// Token: 0x0600245F RID: 9311 RVA: 0x000836C8 File Offset: 0x000818C8
+		public virtual void ShowBattleResults()
+		{
+		}
+
+		// Token: 0x06002460 RID: 9312 RVA: 0x000836CA File Offset: 0x000818CA
+		public virtual void OnRetreatMission()
+		{
+		}
+
+		// Token: 0x06002461 RID: 9313 RVA: 0x000836CC File Offset: 0x000818CC
+		public virtual void OnSurrenderMission()
+		{
+		}
+
+		// Token: 0x06002462 RID: 9314 RVA: 0x000836CE File Offset: 0x000818CE
+		public virtual void OnAutoDeployTeam(Team team)
+		{
+		}
+
+		// Token: 0x06002463 RID: 9315 RVA: 0x000836D0 File Offset: 0x000818D0
+		public virtual List<EquipmentElement> GetExtraEquipmentElementsForCharacter(BasicCharacterObject character, bool getAllEquipments = false)
+		{
+			return null;
+		}
+
+		// Token: 0x06002464 RID: 9316 RVA: 0x000836D3 File Offset: 0x000818D3
+		public virtual void OnMissionResultReady(MissionResult missionResult)
+		{
+		}
+	}
+}

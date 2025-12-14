@@ -1,0 +1,1700 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using TaleWorlds.Core;
+using TaleWorlds.Engine;
+using TaleWorlds.Library;
+
+namespace TaleWorlds.MountAndBlade
+{
+	// Token: 0x02000286 RID: 646
+	public class MissionAgentSpawnLogic : MissionLogic, IMissionAgentSpawnLogic, IMissionBehavior
+	{
+		// Token: 0x1700070F RID: 1807
+		// (get) Token: 0x060023E7 RID: 9191 RVA: 0x00080E85 File Offset: 0x0007F085
+		public static int MaxNumberOfAgentsForMission
+		{
+			get
+			{
+				if (MissionAgentSpawnLogic._maxNumberOfAgentsForMissionCache == 0)
+				{
+					MissionAgentSpawnLogic._maxNumberOfAgentsForMissionCache = MBAPI.IMBAgent.GetMaximumNumberOfAgents();
+				}
+				return MissionAgentSpawnLogic._maxNumberOfAgentsForMissionCache;
+			}
+		}
+
+		// Token: 0x17000710 RID: 1808
+		// (get) Token: 0x060023E8 RID: 9192 RVA: 0x00080EA2 File Offset: 0x0007F0A2
+		private static int MaxNumberOfTroopsForMission
+		{
+			get
+			{
+				return MissionAgentSpawnLogic.MaxNumberOfAgentsForMission / 2;
+			}
+		}
+
+		// Token: 0x14000038 RID: 56
+		// (add) Token: 0x060023E9 RID: 9193 RVA: 0x00080EAC File Offset: 0x0007F0AC
+		// (remove) Token: 0x060023EA RID: 9194 RVA: 0x00080EE4 File Offset: 0x0007F0E4
+		public event Action<BattleSideEnum, int> OnReinforcementsSpawned;
+
+		// Token: 0x14000039 RID: 57
+		// (add) Token: 0x060023EB RID: 9195 RVA: 0x00080F1C File Offset: 0x0007F11C
+		// (remove) Token: 0x060023EC RID: 9196 RVA: 0x00080F54 File Offset: 0x0007F154
+		public event Action<BattleSideEnum, int> OnInitialTroopsSpawned;
+
+		// Token: 0x17000711 RID: 1809
+		// (get) Token: 0x060023ED RID: 9197 RVA: 0x00080F89 File Offset: 0x0007F189
+		public int NumberOfAgents
+		{
+			get
+			{
+				return base.Mission.AllAgents.Count;
+			}
+		}
+
+		// Token: 0x17000712 RID: 1810
+		// (get) Token: 0x060023EE RID: 9198 RVA: 0x00080F9B File Offset: 0x0007F19B
+		public int NumberOfRemainingTroops
+		{
+			get
+			{
+				MissionAgentSpawnLogic.SpawnPhase defenderActivePhase = this.DefenderActivePhase;
+				int num = (defenderActivePhase != null) ? defenderActivePhase.RemainingSpawnNumber : 0;
+				MissionAgentSpawnLogic.SpawnPhase attackerActivePhase = this.AttackerActivePhase;
+				return num + ((attackerActivePhase != null) ? attackerActivePhase.RemainingSpawnNumber : 0);
+			}
+		}
+
+		// Token: 0x17000713 RID: 1811
+		// (get) Token: 0x060023EF RID: 9199 RVA: 0x00080FC2 File Offset: 0x0007F1C2
+		public int NumberOfActiveDefenderTroops
+		{
+			get
+			{
+				MissionAgentSpawnLogic.SpawnPhase defenderActivePhase = this.DefenderActivePhase;
+				if (defenderActivePhase == null)
+				{
+					return 0;
+				}
+				return defenderActivePhase.NumberActiveTroops;
+			}
+		}
+
+		// Token: 0x17000714 RID: 1812
+		// (get) Token: 0x060023F0 RID: 9200 RVA: 0x00080FD5 File Offset: 0x0007F1D5
+		public int NumberOfActiveAttackerTroops
+		{
+			get
+			{
+				MissionAgentSpawnLogic.SpawnPhase attackerActivePhase = this.AttackerActivePhase;
+				if (attackerActivePhase == null)
+				{
+					return 0;
+				}
+				return attackerActivePhase.NumberActiveTroops;
+			}
+		}
+
+		// Token: 0x17000715 RID: 1813
+		// (get) Token: 0x060023F1 RID: 9201 RVA: 0x00080FE8 File Offset: 0x0007F1E8
+		public int NumberOfRemainingDefenderTroops
+		{
+			get
+			{
+				MissionAgentSpawnLogic.SpawnPhase defenderActivePhase = this.DefenderActivePhase;
+				if (defenderActivePhase == null)
+				{
+					return 0;
+				}
+				return defenderActivePhase.RemainingSpawnNumber;
+			}
+		}
+
+		// Token: 0x17000716 RID: 1814
+		// (get) Token: 0x060023F2 RID: 9202 RVA: 0x00080FFB File Offset: 0x0007F1FB
+		public int NumberOfRemainingAttackerTroops
+		{
+			get
+			{
+				MissionAgentSpawnLogic.SpawnPhase attackerActivePhase = this.AttackerActivePhase;
+				if (attackerActivePhase == null)
+				{
+					return 0;
+				}
+				return attackerActivePhase.RemainingSpawnNumber;
+			}
+		}
+
+		// Token: 0x17000717 RID: 1815
+		// (get) Token: 0x060023F3 RID: 9203 RVA: 0x0008100E File Offset: 0x0007F20E
+		public int BattleSize
+		{
+			get
+			{
+				return this._battleSize;
+			}
+		}
+
+		// Token: 0x17000718 RID: 1816
+		// (get) Token: 0x060023F4 RID: 9204 RVA: 0x00081016 File Offset: 0x0007F216
+		public bool IsInitialSpawnOver
+		{
+			get
+			{
+				return this.DefenderActivePhase.InitialSpawnNumber + this.AttackerActivePhase.InitialSpawnNumber == 0;
+			}
+		}
+
+		// Token: 0x17000719 RID: 1817
+		// (get) Token: 0x060023F5 RID: 9205 RVA: 0x00081032 File Offset: 0x0007F232
+		public bool IsDeploymentOver
+		{
+			get
+			{
+				return base.Mission.Mode != MissionMode.Deployment && this.IsInitialSpawnOver;
+			}
+		}
+
+		// Token: 0x1700071A RID: 1818
+		// (get) Token: 0x060023F6 RID: 9206 RVA: 0x0008104A File Offset: 0x0007F24A
+		public ref readonly MissionSpawnSettings ReinforcementSpawnSettings
+		{
+			get
+			{
+				return ref this._spawnSettings;
+			}
+		}
+
+		// Token: 0x1700071B RID: 1819
+		// (get) Token: 0x060023F7 RID: 9207 RVA: 0x00081052 File Offset: 0x0007F252
+		internal DefaultMissionDeploymentPlan DeploymentPlan
+		{
+			get
+			{
+				return this._deploymentPlan;
+			}
+		}
+
+		// Token: 0x1700071C RID: 1820
+		// (get) Token: 0x060023F8 RID: 9208 RVA: 0x0008105A File Offset: 0x0007F25A
+		private int TotalSpawnNumber
+		{
+			get
+			{
+				MissionAgentSpawnLogic.SpawnPhase defenderActivePhase = this.DefenderActivePhase;
+				int num = (defenderActivePhase != null) ? defenderActivePhase.TotalSpawnNumber : 0;
+				MissionAgentSpawnLogic.SpawnPhase attackerActivePhase = this.AttackerActivePhase;
+				return num + ((attackerActivePhase != null) ? attackerActivePhase.TotalSpawnNumber : 0);
+			}
+		}
+
+		// Token: 0x1700071D RID: 1821
+		// (get) Token: 0x060023F9 RID: 9209 RVA: 0x00081081 File Offset: 0x0007F281
+		private MissionAgentSpawnLogic.SpawnPhase DefenderActivePhase
+		{
+			get
+			{
+				return this._phases[0].FirstOrDefault<MissionAgentSpawnLogic.SpawnPhase>();
+			}
+		}
+
+		// Token: 0x1700071E RID: 1822
+		// (get) Token: 0x060023FA RID: 9210 RVA: 0x00081090 File Offset: 0x0007F290
+		private MissionAgentSpawnLogic.SpawnPhase AttackerActivePhase
+		{
+			get
+			{
+				return this._phases[1].FirstOrDefault<MissionAgentSpawnLogic.SpawnPhase>();
+			}
+		}
+
+		// Token: 0x060023FB RID: 9211 RVA: 0x000810A0 File Offset: 0x0007F2A0
+		public override void AfterStart()
+		{
+			this._bannerBearerLogic = base.Mission.GetMissionBehavior<BannerBearerLogic>();
+			if (this._bannerBearerLogic != null)
+			{
+				for (int i = 0; i < 2; i++)
+				{
+					this._missionSides[i].SetBannerBearerLogic(this._bannerBearerLogic);
+				}
+			}
+			MissionGameModels.Current.BattleSpawnModel.OnMissionStart();
+		}
+
+		// Token: 0x060023FC RID: 9212 RVA: 0x000810F4 File Offset: 0x0007F2F4
+		public int GetNumberOfPlayerControllableTroops()
+		{
+			MissionAgentSpawnLogic.MissionSide playerSide = this._playerSide;
+			if (playerSide == null)
+			{
+				return 0;
+			}
+			return playerSide.GetNumberOfPlayerControllableTroops();
+		}
+
+		// Token: 0x060023FD RID: 9213 RVA: 0x00081107 File Offset: 0x0007F307
+		public void InitWithSinglePhase(int defenderTotalSpawn, int attackerTotalSpawn, int defenderInitialSpawn, int attackerInitialSpawn, bool spawnDefenders, bool spawnAttackers, in MissionSpawnSettings spawnSettings)
+		{
+			this.AddPhase(BattleSideEnum.Defender, defenderTotalSpawn, defenderInitialSpawn);
+			this.AddPhase(BattleSideEnum.Attacker, attackerTotalSpawn, attackerInitialSpawn);
+			this.Init(spawnDefenders, spawnAttackers, spawnSettings);
+		}
+
+		// Token: 0x060023FE RID: 9214 RVA: 0x00081128 File Offset: 0x0007F328
+		public IEnumerable<IAgentOriginBase> GetAllTroopsForSide(BattleSideEnum side)
+		{
+			return this._missionSides[(int)side].GetAllTroops();
+		}
+
+		// Token: 0x060023FF RID: 9215 RVA: 0x00081144 File Offset: 0x0007F344
+		public override void OnMissionTick(float dt)
+		{
+			if (!GameNetwork.IsClient && !this.CheckDeployment())
+			{
+				return;
+			}
+			this.PhaseTick();
+			if (this._reinforcementSpawnEnabled)
+			{
+				if (this._spawnSettings.ReinforcementTroopsTimingMethod == MissionSpawnSettings.ReinforcementTimingMethod.GlobalTimer)
+				{
+					this.CheckGlobalReinforcementBatch();
+				}
+				else if (this._spawnSettings.ReinforcementTroopsTimingMethod == MissionSpawnSettings.ReinforcementTimingMethod.CustomTimer)
+				{
+					this.CheckCustomReinforcementBatch();
+				}
+			}
+			if (this._spawningReinforcements)
+			{
+				this.CheckReinforcementSpawn();
+			}
+		}
+
+		// Token: 0x06002400 RID: 9216 RVA: 0x000811A8 File Offset: 0x0007F3A8
+		public MissionAgentSpawnLogic(IMissionTroopSupplier[] suppliers, BattleSideEnum playerSide, Mission.BattleSizeType battleSizeType)
+		{
+			switch (battleSizeType)
+			{
+			case Mission.BattleSizeType.Battle:
+				this._battleSize = BannerlordConfig.GetRealBattleSize();
+				break;
+			case Mission.BattleSizeType.Siege:
+				this._battleSize = BannerlordConfig.GetRealBattleSizeForSiege();
+				break;
+			case Mission.BattleSizeType.SallyOut:
+				this._battleSize = BannerlordConfig.GetRealBattleSizeForSallyOut();
+				break;
+			}
+			this._battleSize = MathF.Min(this._battleSize, MissionAgentSpawnLogic.MaxNumberOfTroopsForMission);
+			this._globalReinforcementSpawnTimer = new BasicMissionTimer();
+			this._spawnSettings = MissionSpawnSettings.CreateDefaultSpawnSettings();
+			this._globalReinforcementInterval = this._spawnSettings.GlobalReinforcementInterval;
+			this._missionSides = new MissionAgentSpawnLogic.MissionSide[2];
+			for (int i = 0; i < 2; i++)
+			{
+				IMissionTroopSupplier troopSupplier = suppliers[i];
+				bool flag = i == (int)playerSide;
+				MissionAgentSpawnLogic.MissionSide missionSide = new MissionAgentSpawnLogic.MissionSide(this, (BattleSideEnum)i, troopSupplier, flag);
+				if (flag)
+				{
+					this._playerSide = missionSide;
+				}
+				this._missionSides[i] = missionSide;
+			}
+			this._numberOfTroopsInTotal = new int[2];
+			this._phases = new List<MissionAgentSpawnLogic.SpawnPhase>[2];
+			for (int j = 0; j < 2; j++)
+			{
+				this._phases[j] = new List<MissionAgentSpawnLogic.SpawnPhase>();
+			}
+			this._reinforcementSpawnEnabled = false;
+		}
+
+		// Token: 0x06002401 RID: 9217 RVA: 0x000812CA File Offset: 0x0007F4CA
+		public void SetCustomReinforcementSpawnTimer(ICustomReinforcementSpawnTimer timer)
+		{
+			this._customReinforcementSpawnTimer = timer;
+		}
+
+		// Token: 0x06002402 RID: 9218 RVA: 0x000812D3 File Offset: 0x0007F4D3
+		public void SetSpawnTroops(BattleSideEnum side, bool spawnTroops, bool enforceSpawning = false)
+		{
+			this._missionSides[(int)side].SetSpawnTroops(spawnTroops);
+			if (spawnTroops && enforceSpawning)
+			{
+				this.CheckDeployment();
+			}
+		}
+
+		// Token: 0x06002403 RID: 9219 RVA: 0x000812EF File Offset: 0x0007F4EF
+		public override void OnBehaviorInitialize()
+		{
+			base.OnBehaviorInitialize();
+			MissionGameModels.Current.BattleInitializationModel.InitializeModel();
+		}
+
+		// Token: 0x06002404 RID: 9220 RVA: 0x00081306 File Offset: 0x0007F506
+		protected override void OnEndMission()
+		{
+			MissionGameModels.Current.BattleSpawnModel.OnMissionEnd();
+			MissionGameModels.Current.BattleInitializationModel.FinalizeModel();
+		}
+
+		// Token: 0x06002405 RID: 9221 RVA: 0x00081326 File Offset: 0x0007F526
+		public void SetSpawnHorses(BattleSideEnum side, bool spawnHorses)
+		{
+			this._missionSides[(int)side].SetSpawnWithHorses(spawnHorses);
+		}
+
+		// Token: 0x06002406 RID: 9222 RVA: 0x00081336 File Offset: 0x0007F536
+		public void StartSpawner(BattleSideEnum side)
+		{
+			this._missionSides[(int)side].SetSpawnTroops(true);
+		}
+
+		// Token: 0x06002407 RID: 9223 RVA: 0x00081346 File Offset: 0x0007F546
+		public void StopSpawner(BattleSideEnum side)
+		{
+			this._missionSides[(int)side].SetSpawnTroops(false);
+		}
+
+		// Token: 0x06002408 RID: 9224 RVA: 0x00081356 File Offset: 0x0007F556
+		public bool IsSideSpawnEnabled(BattleSideEnum side)
+		{
+			return this._missionSides[(int)side].TroopSpawnActive;
+		}
+
+		// Token: 0x06002409 RID: 9225 RVA: 0x00081368 File Offset: 0x0007F568
+		public void OnSideDeploymentOver(BattleSideEnum battleSide)
+		{
+			foreach (Team team in base.Mission.Teams)
+			{
+				if (team.Side == battleSide)
+				{
+					base.Mission.OnTeamDeployed(team);
+				}
+			}
+			base.Mission.OnBattleSideDeployed(battleSide);
+			foreach (Team team2 in base.Mission.Teams)
+			{
+				if (team2.Side == battleSide)
+				{
+					foreach (Formation formation in team2.FormationsIncludingEmpty)
+					{
+						if (formation.CountOfUnits > 0)
+						{
+							formation.QuerySystem.EvaluateAllPreliminaryQueryData();
+						}
+					}
+					team2.MasterOrderController.OnOrderIssued += this.OrderController_OnOrderIssued;
+					for (int i = 8; i < 10; i++)
+					{
+						Formation formation2 = team2.FormationsIncludingSpecialAndEmpty[i];
+						if (formation2.CountOfUnits > 0)
+						{
+							team2.MasterOrderController.SelectFormation(formation2);
+							team2.MasterOrderController.SetOrderWithAgent(OrderType.FollowMe, team2.GeneralAgent);
+							team2.MasterOrderController.ClearSelectedFormations();
+							formation2.SetControlledByAI(true, false);
+						}
+					}
+					team2.MasterOrderController.OnOrderIssued -= this.OrderController_OnOrderIssued;
+				}
+			}
+		}
+
+		// Token: 0x0600240A RID: 9226 RVA: 0x0008150C File Offset: 0x0007F70C
+		public float GetReinforcementInterval()
+		{
+			return this._globalReinforcementInterval;
+		}
+
+		// Token: 0x0600240B RID: 9227 RVA: 0x00081514 File Offset: 0x0007F714
+		public void SetReinforcementsSpawnEnabled(bool value, bool resetTimers = true)
+		{
+			if (this._reinforcementSpawnEnabled != value)
+			{
+				this._reinforcementSpawnEnabled = value;
+				if (resetTimers)
+				{
+					if (this._spawnSettings.ReinforcementTroopsTimingMethod == MissionSpawnSettings.ReinforcementTimingMethod.GlobalTimer)
+					{
+						this._globalReinforcementSpawnTimer.Reset();
+						return;
+					}
+					if (this._spawnSettings.ReinforcementTroopsTimingMethod == MissionSpawnSettings.ReinforcementTimingMethod.CustomTimer)
+					{
+						for (int i = 0; i < 2; i++)
+						{
+							this._customReinforcementSpawnTimer.ResetTimer((BattleSideEnum)i);
+						}
+					}
+				}
+			}
+		}
+
+		// Token: 0x0600240C RID: 9228 RVA: 0x00081573 File Offset: 0x0007F773
+		public int GetTotalNumberOfTroopsForSide(BattleSideEnum side)
+		{
+			return this._numberOfTroopsInTotal[(int)side];
+		}
+
+		// Token: 0x0600240D RID: 9229 RVA: 0x00081580 File Offset: 0x0007F780
+		public BasicCharacterObject GetGeneralCharacterOfSide(BattleSideEnum side)
+		{
+			if (side >= BattleSideEnum.Defender && side < BattleSideEnum.NumSides)
+			{
+				this._missionSides[(int)side].GetGeneralCharacter();
+			}
+			return null;
+		}
+
+		// Token: 0x0600240E RID: 9230 RVA: 0x000815A6 File Offset: 0x0007F7A6
+		public bool GetSpawnHorses(BattleSideEnum side)
+		{
+			return this._missionSides[(int)side].SpawnWithHorses;
+		}
+
+		// Token: 0x0600240F RID: 9231 RVA: 0x000815B8 File Offset: 0x0007F7B8
+		private bool CheckMinimumBatchQuotaRequirement()
+		{
+			int num = MissionAgentSpawnLogic.MaxNumberOfAgentsForMission - this.NumberOfAgents;
+			int num2 = 0;
+			for (int i = 0; i < 2; i++)
+			{
+				num2 += this._missionSides[i].ReinforcementQuotaRequirement;
+			}
+			return num >= num2;
+		}
+
+		// Token: 0x06002410 RID: 9232 RVA: 0x000815F8 File Offset: 0x0007F7F8
+		private void CheckGlobalReinforcementBatch()
+		{
+			if (this._globalReinforcementSpawnTimer.ElapsedTime >= this._globalReinforcementInterval)
+			{
+				bool flag = false;
+				for (int i = 0; i < 2; i++)
+				{
+					BattleSideEnum battleSide = (BattleSideEnum)i;
+					this.NotifyReinforcementTroopsSpawned(battleSide, false);
+					bool flag2 = this._missionSides[i].CheckReinforcementBatch();
+					flag = (flag || flag2);
+				}
+				this._spawningReinforcements = (flag && this.CheckMinimumBatchQuotaRequirement());
+				this._globalReinforcementSpawnTimer.Reset();
+			}
+		}
+
+		// Token: 0x06002411 RID: 9233 RVA: 0x00081660 File Offset: 0x0007F860
+		private void CheckCustomReinforcementBatch()
+		{
+			bool flag = false;
+			for (int i = 0; i < 2; i++)
+			{
+				BattleSideEnum battleSideEnum = (BattleSideEnum)i;
+				if (this._customReinforcementSpawnTimer.Check(battleSideEnum))
+				{
+					flag = true;
+					this.NotifyReinforcementTroopsSpawned(battleSideEnum, false);
+					this._missionSides[i].CheckReinforcementBatch();
+				}
+			}
+			if (flag)
+			{
+				bool flag2 = false;
+				for (int j = 0; j < 2; j++)
+				{
+					flag2 = (flag2 || this._missionSides[j].ReinforcementSpawnActive);
+				}
+				this._spawningReinforcements = (flag2 && this.CheckMinimumBatchQuotaRequirement());
+			}
+		}
+
+		// Token: 0x06002412 RID: 9234 RVA: 0x000816DF File Offset: 0x0007F8DF
+		public bool IsSideDepleted(BattleSideEnum side)
+		{
+			return this._phases[(int)side].Count == 1 && this._missionSides[(int)side].NumberOfActiveTroops == 0 && this.GetActivePhaseForSide(side).RemainingSpawnNumber == 0;
+		}
+
+		// Token: 0x06002413 RID: 9235 RVA: 0x00081711 File Offset: 0x0007F911
+		public void AddPhaseChangeAction(BattleSideEnum side, MissionAgentSpawnLogic.OnPhaseChangedDelegate onPhaseChanged)
+		{
+			MissionAgentSpawnLogic.OnPhaseChangedDelegate[] onPhaseChanged2 = this._onPhaseChanged;
+			onPhaseChanged2[(int)side] = (MissionAgentSpawnLogic.OnPhaseChangedDelegate)Delegate.Combine(onPhaseChanged2[(int)side], onPhaseChanged);
+		}
+
+		// Token: 0x06002414 RID: 9236 RVA: 0x00081730 File Offset: 0x0007F930
+		private void Init(bool spawnDefenders, bool spawnAttackers, in MissionSpawnSettings reinforcementSpawnSettings)
+		{
+			base.Mission.GetDeploymentPlan<DefaultMissionDeploymentPlan>(out this._deploymentPlan);
+			List<MissionAgentSpawnLogic.SpawnPhase>[] phases = this._phases;
+			for (int i = 0; i < phases.Length; i++)
+			{
+				if (phases[i].Count <= 0)
+				{
+					return;
+				}
+			}
+			foreach (Team team in base.Mission.Teams)
+			{
+				BattleSideEnum side = team.Side;
+				bool spawnWithHorses = this._missionSides[(int)side].SpawnWithHorses;
+				this._deploymentPlan.SetSpawnWithHorses(team, spawnWithHorses);
+			}
+			this._spawnSettings = reinforcementSpawnSettings;
+			int num = 0;
+			int num2 = 1;
+			this._globalReinforcementInterval = this._spawnSettings.GlobalReinforcementInterval;
+			int[] array = new int[2];
+			array[0] = this._phases[num].Sum((MissionAgentSpawnLogic.SpawnPhase p) => p.TotalSpawnNumber);
+			array[1] = this._phases[num2].Sum((MissionAgentSpawnLogic.SpawnPhase p) => p.TotalSpawnNumber);
+			int[] array2 = array;
+			int num3 = array2.Sum();
+			if (this._spawnSettings.InitialTroopsSpawnMethod == MissionSpawnSettings.InitialSpawnMethod.BattleSizeAllocating)
+			{
+				float[] array3 = new float[]
+				{
+					(float)array2[num] / (float)num3,
+					(float)array2[num2] / (float)num3
+				};
+				array3[num] = MathF.Min(this._spawnSettings.MaximumBattleSideRatio, array3[num] * this._spawnSettings.DefenderAdvantageFactor);
+				array3[num2] = 1f - array3[num];
+				int num4 = (array3[num] < array3[num2]) ? 0 : 1;
+				int oppositeSide = (int)((BattleSideEnum)num4).GetOppositeSide();
+				int num5 = num4;
+				if (array3[oppositeSide] > this._spawnSettings.MaximumBattleSideRatio)
+				{
+					array3[oppositeSide] = this._spawnSettings.MaximumBattleSideRatio;
+					array3[num5] = 1f - this._spawnSettings.MaximumBattleSideRatio;
+				}
+				int[] array4 = new int[2];
+				int val = MathF.Ceiling(array3[num5] * (float)this._battleSize);
+				array4[num5] = Math.Min(val, array2[num5]);
+				array4[oppositeSide] = this._battleSize - array4[num5];
+				for (int j = 0; j < 2; j++)
+				{
+					foreach (MissionAgentSpawnLogic.SpawnPhase spawnPhase in this._phases[j])
+					{
+						if (spawnPhase.InitialSpawnNumber > array4[j])
+						{
+							int num6 = array4[j];
+							int num7 = spawnPhase.InitialSpawnNumber - num6;
+							spawnPhase.InitialSpawnNumber = num6;
+							spawnPhase.RemainingSpawnNumber += num7;
+						}
+					}
+				}
+			}
+			else if (this._spawnSettings.InitialTroopsSpawnMethod == MissionSpawnSettings.InitialSpawnMethod.FreeAllocation)
+			{
+				this._phases[num].Max((MissionAgentSpawnLogic.SpawnPhase p) => p.InitialSpawnNumber);
+				this._phases[num2].Max((MissionAgentSpawnLogic.SpawnPhase p) => p.InitialSpawnNumber);
+			}
+			if (this._spawnSettings.ReinforcementTroopsSpawnMethod == MissionSpawnSettings.ReinforcementSpawnMethod.Wave)
+			{
+				for (int k = 0; k < 2; k++)
+				{
+					foreach (MissionAgentSpawnLogic.SpawnPhase spawnPhase2 in this._phases[k])
+					{
+						int num8 = (int)Math.Max(1f, (float)spawnPhase2.InitialSpawnNumber * this._spawnSettings.ReinforcementWavePercentage);
+						if (this._spawnSettings.MaximumReinforcementWaveCount > 0)
+						{
+							int num9 = Math.Min(spawnPhase2.RemainingSpawnNumber, num8 * this._spawnSettings.MaximumReinforcementWaveCount);
+							int num10 = Math.Max(0, spawnPhase2.RemainingSpawnNumber - num9);
+							this._numberOfTroopsInTotal[k] -= num10;
+							array2[k] -= num10;
+							spawnPhase2.RemainingSpawnNumber = num9;
+							spawnPhase2.TotalSpawnNumber = spawnPhase2.RemainingSpawnNumber + spawnPhase2.InitialSpawnNumber;
+						}
+					}
+				}
+			}
+			base.Mission.SetBattleAgentCount(MathF.Min(this.DefenderActivePhase.InitialSpawnNumber, this.AttackerActivePhase.InitialSpawnNumber));
+			base.Mission.SetInitialAgentCountForSide(BattleSideEnum.Defender, array2[num]);
+			base.Mission.SetInitialAgentCountForSide(BattleSideEnum.Attacker, array2[num2]);
+			this._missionSides[num].SetSpawnTroops(spawnDefenders);
+			this._missionSides[num2].SetSpawnTroops(spawnAttackers);
+		}
+
+		// Token: 0x06002415 RID: 9237 RVA: 0x00081BC0 File Offset: 0x0007FDC0
+		private void AddPhase(BattleSideEnum side, int totalSpawn, int initialSpawn)
+		{
+			MissionAgentSpawnLogic.SpawnPhase item = new MissionAgentSpawnLogic.SpawnPhase
+			{
+				TotalSpawnNumber = totalSpawn,
+				InitialSpawnNumber = initialSpawn,
+				RemainingSpawnNumber = totalSpawn - initialSpawn
+			};
+			this._phases[(int)side].Add(item);
+			this._numberOfTroopsInTotal[(int)side] += totalSpawn;
+		}
+
+		// Token: 0x06002416 RID: 9238 RVA: 0x00081C0C File Offset: 0x0007FE0C
+		private void PhaseTick()
+		{
+			for (int i = 0; i < 2; i++)
+			{
+				MissionAgentSpawnLogic.SpawnPhase activePhaseForSide = this.GetActivePhaseForSide((BattleSideEnum)i);
+				activePhaseForSide.NumberActiveTroops = this._missionSides[i].NumberOfActiveTroops;
+				if (activePhaseForSide.NumberActiveTroops == 0 && activePhaseForSide.RemainingSpawnNumber == 0 && this._phases[i].Count > 1)
+				{
+					this._phases[i].Remove(activePhaseForSide);
+					BattleSideEnum battleSideEnum = (BattleSideEnum)i;
+					if (this.GetActivePhaseForSide(battleSideEnum) != null)
+					{
+						if (this._onPhaseChanged[i] != null)
+						{
+							this._onPhaseChanged[i]();
+						}
+						foreach (Team team in base.Mission.Teams)
+						{
+							if (team.Side == battleSideEnum)
+							{
+								if (this._deploymentPlan.IsPlanMade(team))
+								{
+									this._deploymentPlan.ClearAddedTroops(team, false);
+									this._deploymentPlan.ClearDeploymentPlan(team);
+								}
+								if (this._deploymentPlan.IsReinforcementPlanMade(team))
+								{
+									this._deploymentPlan.ClearAddedTroops(team, true);
+									this._deploymentPlan.ClearReinforcementPlan(team);
+								}
+							}
+						}
+						Debug.Print("New spawn phase!", 0, Debug.DebugColor.Green, 64UL);
+					}
+				}
+			}
+		}
+
+		// Token: 0x06002417 RID: 9239 RVA: 0x00081D58 File Offset: 0x0007FF58
+		private bool CheckDeployment()
+		{
+			bool isDeploymentOver = this.IsDeploymentOver;
+			if (!isDeploymentOver)
+			{
+				int battleSizeForActivePhase = this.GetBattleSizeForActivePhase();
+				for (int i = 0; i < 2; i++)
+				{
+					BattleSideEnum battleSideEnum = (BattleSideEnum)i;
+					MissionAgentSpawnLogic.SpawnPhase activePhaseForSide = this.GetActivePhaseForSide(battleSideEnum);
+					if (activePhaseForSide.InitialSpawnNumber > 0)
+					{
+						if (activePhaseForSide.InitialSpawnNumber > this._missionSides[i].ReservedTroopsCount)
+						{
+							int number = activePhaseForSide.InitialSpawnNumber - this._missionSides[i].ReservedTroopsCount;
+							this._missionSides[i].ReserveTroops(number);
+						}
+						if (this._missionSides[i].ReservedTroopsCount >= activePhaseForSide.InitialSpawnNumber)
+						{
+							bool flag = true;
+							int num = 0;
+							foreach (Team team in base.Mission.Teams)
+							{
+								if (team.Side == battleSideEnum)
+								{
+									flag = (flag && this._deploymentPlan.IsPlanMade(team) && this._deploymentPlan.IsReinforcementPlanMade(team));
+									num++;
+								}
+							}
+							if (num > 0 && !flag)
+							{
+								List<ValueTuple<Team, MissionAgentSpawnLogic.FormationSpawnData[]>> list;
+								this._missionSides[i].GetTeamFormationsSpawnData(out list);
+								if (base.Mission.HasSpawnPath)
+								{
+									Path initialSpawnPath = base.Mission.GetInitialSpawnPath();
+									float battleSizeOffset = Mission.GetBattleSizeOffset(battleSizeForActivePhase, initialSpawnPath);
+									SpawnPathData initialSpawnPathData = base.Mission.GetInitialSpawnPathData(battleSideEnum);
+									float offsetOverflow = initialSpawnPathData.GetOffsetOverflow(battleSizeOffset);
+									float offsetOverflow2 = initialSpawnPathData.GetOffsetOverflow(-battleSizeOffset);
+									float pathOffsetRatio = battleSizeOffset - offsetOverflow2;
+									float pathOffsetRatio2 = -(battleSizeOffset + offsetOverflow);
+									float num2 = initialSpawnPathData.ClampPathOffset(pathOffsetRatio);
+									float targetOffset = initialSpawnPathData.ClampPathOffset(pathOffsetRatio2);
+									using (List<ValueTuple<Team, MissionAgentSpawnLogic.FormationSpawnData[]>>.Enumerator enumerator2 = list.GetEnumerator())
+									{
+										while (enumerator2.MoveNext())
+										{
+											ValueTuple<Team, MissionAgentSpawnLogic.FormationSpawnData[]> valueTuple = enumerator2.Current;
+											MissionAgentSpawnLogic.FormationSpawnData[] item = valueTuple.Item2;
+											if (valueTuple.Item1 == base.Mission.PlayerTeam || valueTuple.Item1 == base.Mission.PlayerEnemyTeam)
+											{
+												this.MakeTeamPlans(valueTuple.Item1, item, num2, targetOffset);
+											}
+											else
+											{
+												float num3 = item.Max((MissionAgentSpawnLogic.FormationSpawnData data) => Formation.GetDefaultRankDepth(MathF.Ceiling(MathF.Sqrt((float)data.NumTroops)), 3, data.MountedTroopCount > 0));
+												float distance = 3f * num3 + 20f;
+												num2 += Mission.GetPathOffsetFromDistance(distance, initialSpawnPath);
+												this.MakeTeamPlans(valueTuple.Item1, item, num2, targetOffset);
+											}
+										}
+										goto IL_2A5;
+									}
+								}
+								foreach (ValueTuple<Team, MissionAgentSpawnLogic.FormationSpawnData[]> valueTuple2 in list)
+								{
+									this.MakeTeamPlans(valueTuple2.Item1, valueTuple2.Item2, 0f, 0f);
+								}
+							}
+						}
+					}
+					IL_2A5:;
+				}
+				for (int j = 0; j < 2; j++)
+				{
+					BattleSideEnum battleSideEnum2 = (BattleSideEnum)j;
+					int initialSpawnNumber = this.GetActivePhaseForSide(battleSideEnum2).InitialSpawnNumber;
+					if (this._missionSides[j].TroopSpawnActive)
+					{
+						int reservedTroopsCount = this._missionSides[j].ReservedTroopsCount;
+						if (reservedTroopsCount > 0 && reservedTroopsCount >= initialSpawnNumber)
+						{
+							bool flag2 = true;
+							int num4 = 0;
+							foreach (Team team2 in base.Mission.Teams)
+							{
+								if (team2.Side == battleSideEnum2)
+								{
+									flag2 = (flag2 && this._deploymentPlan.IsPlanMade(team2));
+									num4++;
+								}
+							}
+							if (num4 > 0 && flag2)
+							{
+								this._missionSides[j].SpawnTroops(initialSpawnNumber, false);
+								this.GetActivePhaseForSide(battleSideEnum2).OnInitialTroopsSpawned();
+								this._missionSides[j].OnInitialSpawnOver();
+								if (!this._sidesWhereSpawnOccured.Contains(battleSideEnum2))
+								{
+									this._sidesWhereSpawnOccured.Add(battleSideEnum2);
+								}
+								Action<BattleSideEnum, int> onInitialTroopsSpawned = this.OnInitialTroopsSpawned;
+								if (onInitialTroopsSpawned != null)
+								{
+									onInitialTroopsSpawned(battleSideEnum2, initialSpawnNumber);
+								}
+							}
+						}
+					}
+				}
+				isDeploymentOver = this.IsDeploymentOver;
+				if (isDeploymentOver)
+				{
+					foreach (BattleSideEnum battleSide in this._sidesWhereSpawnOccured)
+					{
+						this.OnSideDeploymentOver(battleSide);
+					}
+				}
+			}
+			return isDeploymentOver;
+		}
+
+		// Token: 0x06002418 RID: 9240 RVA: 0x000821C4 File Offset: 0x000803C4
+		private void MakeTeamPlans(Team team, MissionAgentSpawnLogic.FormationSpawnData[] formationsSpawnData, float spawnPathOffset = 0f, float targetOffset = 0f)
+		{
+			if (!this._deploymentPlan.IsPlanMade(team))
+			{
+				for (int i = 0; i < formationsSpawnData.Length; i++)
+				{
+					if (formationsSpawnData[i].NumTroops > 0)
+					{
+						this._deploymentPlan.AddTroops(team, (FormationClass)i, formationsSpawnData[i].FootTroopCount, formationsSpawnData[i].MountedTroopCount, false);
+					}
+				}
+				this._deploymentPlan.MakeDeploymentPlan(team, spawnPathOffset, targetOffset);
+			}
+			if (!this._deploymentPlan.IsReinforcementPlanMade(team))
+			{
+				int num = Math.Max(this._battleSize / (2 * formationsSpawnData.Length), 1);
+				for (int j = 0; j < formationsSpawnData.Length; j++)
+				{
+					if (((FormationClass)j).IsMounted())
+					{
+						this._deploymentPlan.AddTroops(team, (FormationClass)j, 0, num, true);
+					}
+					else
+					{
+						this._deploymentPlan.AddTroops(team, (FormationClass)j, num, 0, true);
+					}
+				}
+				this._deploymentPlan.MakeReinforcementDeploymentPlan(team, 0f, 0f);
+			}
+		}
+
+		// Token: 0x06002419 RID: 9241 RVA: 0x000822A0 File Offset: 0x000804A0
+		private void CheckReinforcementSpawn()
+		{
+			int num = 0;
+			int num2 = 1;
+			MissionAgentSpawnLogic.MissionSide missionSide = this._missionSides[num];
+			MissionAgentSpawnLogic.MissionSide missionSide2 = this._missionSides[num2];
+			bool flag = missionSide.HasSpawnableReinforcements && ((float)missionSide.ReinforcementsSpawnedInLastBatch < missionSide.ReinforcementBatchSize || missionSide.ReinforcementBatchPriority >= missionSide2.ReinforcementBatchPriority);
+			bool flag2 = missionSide2.HasSpawnableReinforcements && ((float)missionSide2.ReinforcementsSpawnedInLastBatch < missionSide2.ReinforcementBatchSize || missionSide2.ReinforcementBatchPriority >= missionSide.ReinforcementBatchPriority);
+			int num3 = 0;
+			if (flag && flag2)
+			{
+				if (missionSide.ReinforcementBatchPriority >= missionSide2.ReinforcementBatchPriority)
+				{
+					int num4 = missionSide.TryReinforcementSpawn();
+					this.DefenderActivePhase.RemainingSpawnNumber -= num4;
+					num3 += num4;
+					num4 = missionSide2.TryReinforcementSpawn();
+					this.AttackerActivePhase.RemainingSpawnNumber -= num4;
+					num3 += num4;
+				}
+				else
+				{
+					int num4 = missionSide2.TryReinforcementSpawn();
+					this.AttackerActivePhase.RemainingSpawnNumber -= num4;
+					num3 += num4;
+					num4 = missionSide.TryReinforcementSpawn();
+					this.DefenderActivePhase.RemainingSpawnNumber -= num4;
+					num3 += num4;
+				}
+			}
+			else if (flag)
+			{
+				int num4 = missionSide.TryReinforcementSpawn();
+				this.DefenderActivePhase.RemainingSpawnNumber -= num4;
+				num3 += num4;
+			}
+			else if (flag2)
+			{
+				int num4 = missionSide2.TryReinforcementSpawn();
+				this.AttackerActivePhase.RemainingSpawnNumber -= num4;
+				num3 += num4;
+			}
+			if (num3 > 0)
+			{
+				for (int i = 0; i < 2; i++)
+				{
+					this.NotifyReinforcementTroopsSpawned((BattleSideEnum)i, true);
+				}
+			}
+		}
+
+		// Token: 0x0600241A RID: 9242 RVA: 0x00082444 File Offset: 0x00080644
+		private void NotifyReinforcementTroopsSpawned(BattleSideEnum battleSide, bool checkEmptyReserves = false)
+		{
+			MissionAgentSpawnLogic.MissionSide missionSide = this._missionSides[(int)battleSide];
+			int reinforcementsSpawnedInLastBatch = missionSide.ReinforcementsSpawnedInLastBatch;
+			if (!missionSide.ReinforcementsNotifiedOnLastBatch && reinforcementsSpawnedInLastBatch > 0 && (!checkEmptyReserves || (checkEmptyReserves && !missionSide.HasReservedTroops)))
+			{
+				Action<BattleSideEnum, int> onReinforcementsSpawned = this.OnReinforcementsSpawned;
+				if (onReinforcementsSpawned != null)
+				{
+					onReinforcementsSpawned(battleSide, reinforcementsSpawnedInLastBatch);
+				}
+				missionSide.SetReinforcementsNotifiedOnLastBatch(true);
+			}
+		}
+
+		// Token: 0x0600241B RID: 9243 RVA: 0x00082495 File Offset: 0x00080695
+		private void OrderController_OnOrderIssued(OrderType orderType, MBReadOnlyList<Formation> appliedFormations, OrderController orderController, params object[] delegateParams)
+		{
+			DeploymentHandler.OrderController_OnOrderIssued_Aux(orderType, appliedFormations, orderController, delegateParams);
+		}
+
+		// Token: 0x0600241C RID: 9244 RVA: 0x000824A1 File Offset: 0x000806A1
+		private int GetBattleSizeForActivePhase()
+		{
+			return MathF.Max(this.DefenderActivePhase.TotalSpawnNumber, this.AttackerActivePhase.TotalSpawnNumber);
+		}
+
+		// Token: 0x0600241D RID: 9245 RVA: 0x000824BE File Offset: 0x000806BE
+		private MissionAgentSpawnLogic.SpawnPhase GetActivePhaseForSide(BattleSideEnum side)
+		{
+			if (side == BattleSideEnum.Defender)
+			{
+				return this.DefenderActivePhase;
+			}
+			if (side != BattleSideEnum.Attacker)
+			{
+				Debug.FailedAssert("Wrong Side", "C:\\BuildAgent\\work\\mb3\\Source\\Bannerlord\\TaleWorlds.MountAndBlade\\Missions\\MissionLogics\\MissionAgentSpawnLogic.cs", "GetActivePhaseForSide", 1694);
+				return null;
+			}
+			return this.AttackerActivePhase;
+		}
+
+		// Token: 0x04000DD9 RID: 3545
+		private static int _maxNumberOfAgentsForMissionCache;
+
+		// Token: 0x04000DDC RID: 3548
+		private readonly MissionAgentSpawnLogic.OnPhaseChangedDelegate[] _onPhaseChanged = new MissionAgentSpawnLogic.OnPhaseChangedDelegate[2];
+
+		// Token: 0x04000DDD RID: 3549
+		private readonly List<MissionAgentSpawnLogic.SpawnPhase>[] _phases;
+
+		// Token: 0x04000DDE RID: 3550
+		private readonly int[] _numberOfTroopsInTotal;
+
+		// Token: 0x04000DDF RID: 3551
+		private readonly int _battleSize;
+
+		// Token: 0x04000DE0 RID: 3552
+		private bool _reinforcementSpawnEnabled = true;
+
+		// Token: 0x04000DE1 RID: 3553
+		private bool _spawningReinforcements;
+
+		// Token: 0x04000DE2 RID: 3554
+		private readonly BasicMissionTimer _globalReinforcementSpawnTimer;
+
+		// Token: 0x04000DE3 RID: 3555
+		private ICustomReinforcementSpawnTimer _customReinforcementSpawnTimer;
+
+		// Token: 0x04000DE4 RID: 3556
+		private float _globalReinforcementInterval;
+
+		// Token: 0x04000DE5 RID: 3557
+		private MissionSpawnSettings _spawnSettings;
+
+		// Token: 0x04000DE6 RID: 3558
+		private readonly MissionAgentSpawnLogic.MissionSide[] _missionSides;
+
+		// Token: 0x04000DE7 RID: 3559
+		private BannerBearerLogic _bannerBearerLogic;
+
+		// Token: 0x04000DE8 RID: 3560
+		private DefaultMissionDeploymentPlan _deploymentPlan;
+
+		// Token: 0x04000DE9 RID: 3561
+		private List<BattleSideEnum> _sidesWhereSpawnOccured = new List<BattleSideEnum>();
+
+		// Token: 0x04000DEA RID: 3562
+		private readonly MissionAgentSpawnLogic.MissionSide _playerSide;
+
+		// Token: 0x0200055B RID: 1371
+		internal struct FormationSpawnData
+		{
+			// Token: 0x17000A55 RID: 2645
+			// (get) Token: 0x06003CB1 RID: 15537 RVA: 0x000F0997 File Offset: 0x000EEB97
+			public int NumTroops
+			{
+				get
+				{
+					return this.FootTroopCount + this.MountedTroopCount;
+				}
+			}
+
+			// Token: 0x04001DFA RID: 7674
+			public int FootTroopCount;
+
+			// Token: 0x04001DFB RID: 7675
+			public int MountedTroopCount;
+		}
+
+		// Token: 0x0200055C RID: 1372
+		private class MissionSide
+		{
+			// Token: 0x17000A56 RID: 2646
+			// (get) Token: 0x06003CB2 RID: 15538 RVA: 0x000F09A6 File Offset: 0x000EEBA6
+			// (set) Token: 0x06003CB3 RID: 15539 RVA: 0x000F09AE File Offset: 0x000EEBAE
+			public bool TroopSpawnActive { get; private set; }
+
+			// Token: 0x17000A57 RID: 2647
+			// (get) Token: 0x06003CB4 RID: 15540 RVA: 0x000F09B7 File Offset: 0x000EEBB7
+			public bool IsPlayerSide { get; }
+
+			// Token: 0x17000A58 RID: 2648
+			// (get) Token: 0x06003CB5 RID: 15541 RVA: 0x000F09BF File Offset: 0x000EEBBF
+			// (set) Token: 0x06003CB6 RID: 15542 RVA: 0x000F09C7 File Offset: 0x000EEBC7
+			public bool ReinforcementSpawnActive { get; private set; }
+
+			// Token: 0x17000A59 RID: 2649
+			// (get) Token: 0x06003CB7 RID: 15543 RVA: 0x000F09D0 File Offset: 0x000EEBD0
+			public bool SpawnWithHorses
+			{
+				get
+				{
+					return this._spawnWithHorses;
+				}
+			}
+
+			// Token: 0x17000A5A RID: 2650
+			// (get) Token: 0x06003CB8 RID: 15544 RVA: 0x000F09D8 File Offset: 0x000EEBD8
+			// (set) Token: 0x06003CB9 RID: 15545 RVA: 0x000F09E0 File Offset: 0x000EEBE0
+			public bool ReinforcementsNotifiedOnLastBatch { get; private set; }
+
+			// Token: 0x17000A5B RID: 2651
+			// (get) Token: 0x06003CBA RID: 15546 RVA: 0x000F09E9 File Offset: 0x000EEBE9
+			public int NumberOfActiveTroops
+			{
+				get
+				{
+					return this._numSpawnedTroops - this._troopSupplier.NumRemovedTroops;
+				}
+			}
+
+			// Token: 0x17000A5C RID: 2652
+			// (get) Token: 0x06003CBB RID: 15547 RVA: 0x000F09FD File Offset: 0x000EEBFD
+			public int ReinforcementQuotaRequirement
+			{
+				get
+				{
+					return this._reinforcementQuotaRequirement;
+				}
+			}
+
+			// Token: 0x17000A5D RID: 2653
+			// (get) Token: 0x06003CBC RID: 15548 RVA: 0x000F0A05 File Offset: 0x000EEC05
+			public int ReinforcementsSpawnedInLastBatch
+			{
+				get
+				{
+					return this._reinforcementsSpawnedInLastBatch;
+				}
+			}
+
+			// Token: 0x17000A5E RID: 2654
+			// (get) Token: 0x06003CBD RID: 15549 RVA: 0x000F0A0D File Offset: 0x000EEC0D
+			public float ReinforcementBatchSize
+			{
+				get
+				{
+					return (float)this._reinforcementBatchSize;
+				}
+			}
+
+			// Token: 0x17000A5F RID: 2655
+			// (get) Token: 0x06003CBE RID: 15550 RVA: 0x000F0A16 File Offset: 0x000EEC16
+			public bool HasReservedTroops
+			{
+				get
+				{
+					return this._reservedTroops.Count > 0;
+				}
+			}
+
+			// Token: 0x17000A60 RID: 2656
+			// (get) Token: 0x06003CBF RID: 15551 RVA: 0x000F0A26 File Offset: 0x000EEC26
+			public float ReinforcementBatchPriority
+			{
+				get
+				{
+					return this._reinforcementBatchPriority;
+				}
+			}
+
+			// Token: 0x06003CC0 RID: 15552 RVA: 0x000F0A2E File Offset: 0x000EEC2E
+			public int GetNumberOfPlayerControllableTroops()
+			{
+				return this._troopSupplier.GetNumberOfPlayerControllableTroops();
+			}
+
+			// Token: 0x17000A61 RID: 2657
+			// (get) Token: 0x06003CC1 RID: 15553 RVA: 0x000F0A3B File Offset: 0x000EEC3B
+			public int ReservedTroopsCount
+			{
+				get
+				{
+					return this._reservedTroops.Count;
+				}
+			}
+
+			// Token: 0x06003CC2 RID: 15554 RVA: 0x000F0A48 File Offset: 0x000EEC48
+			public MissionSide(MissionAgentSpawnLogic spawnLogic, BattleSideEnum side, IMissionTroopSupplier troopSupplier, bool isPlayerSide)
+			{
+				this._spawnLogic = spawnLogic;
+				this._side = side;
+				this._spawnWithHorses = true;
+				this._spawnedFormations = new MBArrayList<Formation>();
+				this._troopSupplier = troopSupplier;
+				this._reinforcementQuotaRequirement = 0;
+				this._reinforcementBatchSize = 0;
+				this._reinforcementSpawnedUnitCountPerFormation = new ValueTuple<int, int>[8];
+				this._reinforcementTroopFormationAssignments = new Dictionary<IAgentOriginBase, int>();
+				this.IsPlayerSide = isPlayerSide;
+				this.ReinforcementsNotifiedOnLastBatch = false;
+			}
+
+			// Token: 0x06003CC3 RID: 15555 RVA: 0x000F0AC4 File Offset: 0x000EECC4
+			public int TryReinforcementSpawn()
+			{
+				int num = 0;
+				if (this.ReinforcementSpawnActive && this.TroopSpawnActive && this._reservedTroops.Count > 0)
+				{
+					int num2 = MissionAgentSpawnLogic.MaxNumberOfAgentsForMission - this._spawnLogic.NumberOfAgents;
+					int reservedTroopQuota = this.GetReservedTroopQuota(0);
+					if (num2 >= reservedTroopQuota)
+					{
+						num = this.SpawnTroops(1, true);
+						if (num > 0)
+						{
+							this._reinforcementQuotaRequirement -= reservedTroopQuota;
+							if (this._reservedTroops.Count >= this._reinforcementBatchSize)
+							{
+								this._reinforcementQuotaRequirement += this.GetReservedTroopQuota(this._reinforcementBatchSize - 1);
+							}
+							this._reinforcementBatchPriority /= 2f;
+						}
+					}
+				}
+				this._reinforcementsSpawnedInLastBatch += num;
+				return num;
+			}
+
+			// Token: 0x06003CC4 RID: 15556 RVA: 0x000F0B80 File Offset: 0x000EED80
+			public void GetTeamFormationsSpawnData([TupleElementNames(new string[]
+			{
+				"team",
+				"formationSpawnData"
+			})] out List<ValueTuple<Team, MissionAgentSpawnLogic.FormationSpawnData[]>> teamFormationsSpawnData)
+			{
+				teamFormationsSpawnData = new List<ValueTuple<Team, MissionAgentSpawnLogic.FormationSpawnData[]>>();
+				Mission mission = this._spawnLogic.Mission;
+				foreach (Team team in (from t in mission.Teams
+				where t.Side == this._side && t == mission.PlayerTeam
+				select t).Concat(from t in mission.Teams
+				where t.Side == this._side && t != mission.PlayerTeam
+				select t))
+				{
+					if (team.Side == this._side)
+					{
+						MissionAgentSpawnLogic.FormationSpawnData[] array = new MissionAgentSpawnLogic.FormationSpawnData[11];
+						for (int i = 0; i < array.Length; i++)
+						{
+							array[i].FootTroopCount = 0;
+							array[i].MountedTroopCount = 0;
+						}
+						teamFormationsSpawnData.Add(new ValueTuple<Team, MissionAgentSpawnLogic.FormationSpawnData[]>(team, array));
+					}
+				}
+				foreach (IAgentOriginBase agentOriginBase in this._reservedTroops)
+				{
+					FormationClass agentTroopClass = Mission.Current.GetAgentTroopClass(this._side, agentOriginBase.Troop);
+					bool isPlayerSide = this._side == Mission.Current.PlayerTeam.Side;
+					Team troopTeam = Mission.GetAgentTeam(agentOriginBase, isPlayerSide);
+					MissionAgentSpawnLogic.FormationSpawnData[] item = teamFormationsSpawnData.FirstOrDefault(([TupleElementNames(new string[]
+					{
+						"team",
+						"formationSpawnData"
+					})] ValueTuple<Team, MissionAgentSpawnLogic.FormationSpawnData[]> tf) => tf.Item1 == troopTeam).Item2;
+					if (agentOriginBase.Troop.HasMount())
+					{
+						MissionAgentSpawnLogic.FormationSpawnData[] array2 = item;
+						FormationClass formationClass = agentTroopClass;
+						array2[(int)formationClass].MountedTroopCount = array2[(int)formationClass].MountedTroopCount + 1;
+					}
+					else
+					{
+						MissionAgentSpawnLogic.FormationSpawnData[] array3 = item;
+						FormationClass formationClass2 = agentTroopClass;
+						array3[(int)formationClass2].FootTroopCount = array3[(int)formationClass2].FootTroopCount + 1;
+					}
+				}
+			}
+
+			// Token: 0x06003CC5 RID: 15557 RVA: 0x000F0D54 File Offset: 0x000EEF54
+			public void ReserveTroops(int number)
+			{
+				if (number > 0 && this._troopSupplier.AnyTroopRemainsToBeSupplied)
+				{
+					this._reservedTroops.AddRange(this._troopSupplier.SupplyTroops(number));
+				}
+			}
+
+			// Token: 0x17000A62 RID: 2658
+			// (get) Token: 0x06003CC6 RID: 15558 RVA: 0x000F0D7E File Offset: 0x000EEF7E
+			public bool HasSpawnableReinforcements
+			{
+				get
+				{
+					return this.ReinforcementSpawnActive && this.HasReservedTroops && this.ReinforcementBatchSize > 0f;
+				}
+			}
+
+			// Token: 0x06003CC7 RID: 15559 RVA: 0x000F0D9F File Offset: 0x000EEF9F
+			public BasicCharacterObject GetGeneralCharacter()
+			{
+				return this._troopSupplier.GetGeneralCharacter();
+			}
+
+			// Token: 0x06003CC8 RID: 15560 RVA: 0x000F0DAC File Offset: 0x000EEFAC
+			public unsafe bool CheckReinforcementBatch()
+			{
+				MissionAgentSpawnLogic.SpawnPhase spawnPhase = (this._side == BattleSideEnum.Defender) ? this._spawnLogic.DefenderActivePhase : this._spawnLogic.AttackerActivePhase;
+				this._reinforcementsSpawnedInLastBatch = 0;
+				this.ReinforcementsNotifiedOnLastBatch = false;
+				int num = 0;
+				MissionSpawnSettings missionSpawnSettings = *this._spawnLogic.ReinforcementSpawnSettings;
+				switch (missionSpawnSettings.ReinforcementTroopsSpawnMethod)
+				{
+				case MissionSpawnSettings.ReinforcementSpawnMethod.Balanced:
+					num = this.ComputeBalancedBatch(spawnPhase);
+					break;
+				case MissionSpawnSettings.ReinforcementSpawnMethod.Wave:
+					num = this.ComputeWaveBatch(spawnPhase);
+					break;
+				case MissionSpawnSettings.ReinforcementSpawnMethod.Fixed:
+					num = this.ComputeFixedBatch(spawnPhase);
+					break;
+				}
+				num = Math.Min(num, spawnPhase.RemainingSpawnNumber);
+				num -= this._reservedTroops.Count;
+				if (num > 0)
+				{
+					int count = this._reservedTroops.Count;
+					this.ReserveTroops(num);
+					if (count < this._reinforcementBatchSize)
+					{
+						int num2 = Math.Min(this._reservedTroops.Count, this._reinforcementBatchSize);
+						for (int i = count; i < num2; i++)
+						{
+							this._reinforcementQuotaRequirement += this.GetReservedTroopQuota(i);
+						}
+					}
+				}
+				this._reinforcementBatchPriority = (float)this._reservedTroops.Count;
+				bool reinforcementSpawnActive;
+				if (missionSpawnSettings.ReinforcementTroopsSpawnMethod == MissionSpawnSettings.ReinforcementSpawnMethod.Wave)
+				{
+					reinforcementSpawnActive = (this._reservedTroops.Count > 0);
+				}
+				else
+				{
+					reinforcementSpawnActive = (this._reservedTroops.Count > 0 && (this._reservedTroops.Count >= this._reinforcementBatchSize || spawnPhase.RemainingSpawnNumber <= this._reinforcementBatchSize));
+				}
+				this.ReinforcementSpawnActive = reinforcementSpawnActive;
+				if (this.ReinforcementSpawnActive)
+				{
+					this.ResetReinforcementSpawnedUnitCountsPerFormation();
+					foreach (Team team in this._spawnLogic.Mission.Teams)
+					{
+						if (team.Side == this._side)
+						{
+							this._spawnLogic.DeploymentPlan.UpdateReinforcementPlan(team);
+						}
+					}
+				}
+				return this.ReinforcementSpawnActive;
+			}
+
+			// Token: 0x06003CC9 RID: 15561 RVA: 0x000F0FA0 File Offset: 0x000EF1A0
+			public IEnumerable<IAgentOriginBase> GetAllTroops()
+			{
+				return this._troopSupplier.GetAllTroops();
+			}
+
+			// Token: 0x06003CCA RID: 15562 RVA: 0x000F0FB0 File Offset: 0x000EF1B0
+			public int SpawnTroops(int number, bool isReinforcement)
+			{
+				if (number <= 0)
+				{
+					return 0;
+				}
+				List<IAgentOriginBase> list = new List<IAgentOriginBase>();
+				int num = MathF.Min(this._reservedTroops.Count, number);
+				if (num > 0)
+				{
+					for (int i = 0; i < num; i++)
+					{
+						IAgentOriginBase item = this._reservedTroops[i];
+						list.Add(item);
+					}
+					this._reservedTroops.RemoveRange(0, num);
+				}
+				int numberToAllocate = number - num;
+				list.AddRange(this._troopSupplier.SupplyTroops(numberToAllocate));
+				Mission mission = Mission.Current;
+				if (this._troopOriginsToSpawnPerTeam == null)
+				{
+					this._troopOriginsToSpawnPerTeam = new List<ValueTuple<Team, List<IAgentOriginBase>>>();
+					using (List<Team>.Enumerator enumerator = mission.Teams.GetEnumerator())
+					{
+						while (enumerator.MoveNext())
+						{
+							Team team = enumerator.Current;
+							bool flag = team.Side == mission.PlayerTeam.Side;
+							if ((this.IsPlayerSide && flag) || (!this.IsPlayerSide && !flag))
+							{
+								this._troopOriginsToSpawnPerTeam.Add(new ValueTuple<Team, List<IAgentOriginBase>>(team, new List<IAgentOriginBase>()));
+							}
+						}
+						goto IL_136;
+					}
+				}
+				foreach (ValueTuple<Team, List<IAgentOriginBase>> valueTuple in this._troopOriginsToSpawnPerTeam)
+				{
+					valueTuple.Item2.Clear();
+				}
+				IL_136:
+				int num2 = 0;
+				foreach (IAgentOriginBase agentOriginBase in list)
+				{
+					Team agentTeam = Mission.GetAgentTeam(agentOriginBase, this.IsPlayerSide);
+					foreach (ValueTuple<Team, List<IAgentOriginBase>> valueTuple2 in this._troopOriginsToSpawnPerTeam)
+					{
+						if (agentTeam == valueTuple2.Item1)
+						{
+							num2++;
+							valueTuple2.Item2.Add(agentOriginBase);
+						}
+					}
+				}
+				int num3 = 0;
+				List<IAgentOriginBase> list2 = new List<IAgentOriginBase>();
+				foreach (ValueTuple<Team, List<IAgentOriginBase>> valueTuple3 in this._troopOriginsToSpawnPerTeam)
+				{
+					if (!valueTuple3.Item2.IsEmpty<IAgentOriginBase>())
+					{
+						int num4 = 0;
+						int num5 = 0;
+						int num6 = 0;
+						List<ValueTuple<IAgentOriginBase, int>> list3 = null;
+						if (isReinforcement)
+						{
+							list3 = new List<ValueTuple<IAgentOriginBase, int>>();
+							using (List<IAgentOriginBase>.Enumerator enumerator3 = valueTuple3.Item2.GetEnumerator())
+							{
+								while (enumerator3.MoveNext())
+								{
+									IAgentOriginBase agentOriginBase2 = enumerator3.Current;
+									int item2;
+									this._reinforcementTroopFormationAssignments.TryGetValue(agentOriginBase2, out item2);
+									list3.Add(new ValueTuple<IAgentOriginBase, int>(agentOriginBase2, item2));
+								}
+								goto IL_280;
+							}
+							goto IL_262;
+						}
+						goto IL_262;
+						IL_280:
+						for (int j = 0; j < 8; j++)
+						{
+							list2.Clear();
+							IAgentOriginBase agentOriginBase3 = null;
+							foreach (ValueTuple<IAgentOriginBase, int> valueTuple4 in list3)
+							{
+								IAgentOriginBase item3 = valueTuple4.Item1;
+								int item4 = valueTuple4.Item2;
+								if (j == item4)
+								{
+									if (item3.Troop == Game.Current.PlayerTroop)
+									{
+										agentOriginBase3 = item3;
+									}
+									else
+									{
+										if (item3.Troop.HasMount())
+										{
+											num5++;
+										}
+										else
+										{
+											num6++;
+										}
+										list2.Add(item3);
+									}
+								}
+							}
+							if (agentOriginBase3 != null)
+							{
+								if (agentOriginBase3.Troop.HasMount())
+								{
+									num5++;
+								}
+								else
+								{
+									num6++;
+								}
+								list2.Add(agentOriginBase3);
+							}
+							int count = list2.Count;
+							if (count > 0)
+							{
+								bool isMounted = this._spawnWithHorses && DefaultMissionDeploymentPlan.HasSignificantMountedTroops(num6, num5);
+								int num7 = 0;
+								int num8 = count;
+								if (this.ReinforcementSpawnActive)
+								{
+									num7 = this._reinforcementSpawnedUnitCountPerFormation[j].Item1;
+									num8 = this._reinforcementSpawnedUnitCountPerFormation[j].Item2;
+								}
+								Formation formation = valueTuple3.Item1.GetFormation((FormationClass)j);
+								if (!formation.HasBeenPositioned)
+								{
+									formation.BeginSpawn(num8, isMounted);
+									mission.SetFormationPositioningFromDeploymentPlan(formation);
+									this._spawnedFormations.Add(formation);
+								}
+								foreach (IAgentOriginBase agentOriginBase4 in list2)
+								{
+									if (!agentOriginBase4.Troop.IsHero && this._bannerBearerLogic != null && mission.Mode != MissionMode.Deployment && this._bannerBearerLogic.GetMissingBannerCount(formation) > 0)
+									{
+										this._bannerBearerLogic.SpawnBannerBearer(agentOriginBase4, this.IsPlayerSide, formation, this._spawnWithHorses, isReinforcement, num8, num7, true, true, false, null, null, null, mission.IsSallyOutBattle);
+									}
+									else
+									{
+										mission.SpawnTroop(agentOriginBase4, this.IsPlayerSide, true, this._spawnWithHorses, isReinforcement, num8, num7, true, true, false, null, null, null, null, formation.FormationIndex, mission.IsSallyOutBattle);
+									}
+									this._numSpawnedTroops++;
+									num7++;
+									num4++;
+								}
+								if (this.ReinforcementSpawnActive)
+								{
+									this._reinforcementSpawnedUnitCountPerFormation[j].Item1 = num7;
+								}
+							}
+						}
+						if (num4 > 0)
+						{
+							valueTuple3.Item1.QuerySystem.Expire();
+						}
+						num3 += num4;
+						foreach (Formation formation2 in valueTuple3.Item1.FormationsIncludingEmpty)
+						{
+							if (formation2.CountOfUnits > 0 && formation2.IsSpawning)
+							{
+								formation2.EndSpawn();
+							}
+						}
+						continue;
+						IL_262:
+						list3 = MissionGameModels.Current.BattleSpawnModel.GetInitialSpawnAssignments(this._side, valueTuple3.Item2);
+						goto IL_280;
+					}
+				}
+				return num3;
+			}
+
+			// Token: 0x06003CCB RID: 15563 RVA: 0x000F1620 File Offset: 0x000EF820
+			public void SetSpawnWithHorses(bool spawnWithHorses)
+			{
+				this._spawnWithHorses = spawnWithHorses;
+			}
+
+			// Token: 0x06003CCC RID: 15564 RVA: 0x000F162C File Offset: 0x000EF82C
+			private unsafe int ComputeBalancedBatch(MissionAgentSpawnLogic.SpawnPhase activePhase)
+			{
+				int num = 0;
+				if (activePhase != null && activePhase.RemainingSpawnNumber > 0)
+				{
+					MissionSpawnSettings missionSpawnSettings = *this._spawnLogic.ReinforcementSpawnSettings;
+					int reinforcementBatchSize = this._reinforcementBatchSize;
+					this._reinforcementBatchSize = (int)((float)this._spawnLogic.BattleSize * missionSpawnSettings.ReinforcementBatchPercentage);
+					if (reinforcementBatchSize != this._reinforcementBatchSize)
+					{
+						this.UpdateReinforcementQuotaRequirement(reinforcementBatchSize);
+					}
+					int num2 = activePhase.TotalSpawnNumber - activePhase.InitialSpawnedNumber;
+					num = MathF.Max(1, this._reservedTroops.Count + (int)((float)num2 * missionSpawnSettings.DesiredReinforcementPercentage));
+					num = MathF.Min(num, activePhase.InitialSpawnedNumber - this.NumberOfActiveTroops);
+				}
+				return num;
+			}
+
+			// Token: 0x06003CCD RID: 15565 RVA: 0x000F16D4 File Offset: 0x000EF8D4
+			private unsafe int ComputeFixedBatch(MissionAgentSpawnLogic.SpawnPhase activePhase)
+			{
+				int result = 0;
+				if (activePhase != null && activePhase.RemainingSpawnNumber > 0)
+				{
+					MissionSpawnSettings missionSpawnSettings = *this._spawnLogic.ReinforcementSpawnSettings;
+					float num = (this._side == BattleSideEnum.Defender) ? missionSpawnSettings.DefenderReinforcementBatchPercentage : missionSpawnSettings.AttackerReinforcementBatchPercentage;
+					int reinforcementBatchSize = this._reinforcementBatchSize;
+					this._reinforcementBatchSize = (int)((float)this._spawnLogic.TotalSpawnNumber * num);
+					if (reinforcementBatchSize != this._reinforcementBatchSize)
+					{
+						this.UpdateReinforcementQuotaRequirement(reinforcementBatchSize);
+					}
+					result = MathF.Max(1, this._reinforcementBatchSize);
+				}
+				return result;
+			}
+
+			// Token: 0x06003CCE RID: 15566 RVA: 0x000F1754 File Offset: 0x000EF954
+			private unsafe int ComputeWaveBatch(MissionAgentSpawnLogic.SpawnPhase activePhase)
+			{
+				int result = 0;
+				if (activePhase != null && activePhase.RemainingSpawnNumber > 0 && this._reservedTroops.IsEmpty<IAgentOriginBase>())
+				{
+					MissionSpawnSettings missionSpawnSettings = *this._spawnLogic.ReinforcementSpawnSettings;
+					int reinforcementBatchSize = this._reinforcementBatchSize;
+					int num = (int)Math.Max(1f, (float)activePhase.InitialSpawnedNumber * missionSpawnSettings.ReinforcementWavePercentage);
+					this._reinforcementBatchSize = num;
+					if (reinforcementBatchSize != this._reinforcementBatchSize)
+					{
+						this.UpdateReinforcementQuotaRequirement(reinforcementBatchSize);
+					}
+					if (activePhase.InitialSpawnedNumber - activePhase.NumberActiveTroops >= num)
+					{
+						result = num;
+					}
+				}
+				return result;
+			}
+
+			// Token: 0x06003CCF RID: 15567 RVA: 0x000F17D9 File Offset: 0x000EF9D9
+			public void SetBannerBearerLogic(BannerBearerLogic bannerBearerLogic)
+			{
+				this._bannerBearerLogic = bannerBearerLogic;
+			}
+
+			// Token: 0x06003CD0 RID: 15568 RVA: 0x000F17E4 File Offset: 0x000EF9E4
+			private void UpdateReinforcementQuotaRequirement(int previousBatchSize)
+			{
+				if (this._reinforcementBatchSize < previousBatchSize)
+				{
+					for (int i = MathF.Min(this._reservedTroops.Count - 1, previousBatchSize - 1); i >= this._reinforcementBatchSize; i--)
+					{
+						this._reinforcementQuotaRequirement -= this.GetReservedTroopQuota(i);
+					}
+					return;
+				}
+				if (this._reinforcementBatchSize > previousBatchSize)
+				{
+					int num = MathF.Min(this._reservedTroops.Count - 1, this._reinforcementBatchSize - 1);
+					for (int j = previousBatchSize; j <= num; j++)
+					{
+						this._reinforcementQuotaRequirement += this.GetReservedTroopQuota(j);
+					}
+				}
+			}
+
+			// Token: 0x06003CD1 RID: 15569 RVA: 0x000F1878 File Offset: 0x000EFA78
+			public void SetReinforcementsNotifiedOnLastBatch(bool value)
+			{
+				this.ReinforcementsNotifiedOnLastBatch = value;
+			}
+
+			// Token: 0x06003CD2 RID: 15570 RVA: 0x000F1884 File Offset: 0x000EFA84
+			private void ResetReinforcementSpawnedUnitCountsPerFormation()
+			{
+				for (int i = 0; i < 8; i++)
+				{
+					this._reinforcementSpawnedUnitCountPerFormation[i].Item1 = 0;
+					this._reinforcementSpawnedUnitCountPerFormation[i].Item2 = 0;
+				}
+				this._reinforcementTroopFormationAssignments.Clear();
+				foreach (ValueTuple<IAgentOriginBase, int> valueTuple in MissionGameModels.Current.BattleSpawnModel.GetReinforcementAssignments(this._side, this._reservedTroops))
+				{
+					int item = valueTuple.Item2;
+					this._reinforcementTroopFormationAssignments.Add(valueTuple.Item1, valueTuple.Item2);
+					ValueTuple<int, int>[] reinforcementSpawnedUnitCountPerFormation = this._reinforcementSpawnedUnitCountPerFormation;
+					int num = item;
+					reinforcementSpawnedUnitCountPerFormation[num].Item2 = reinforcementSpawnedUnitCountPerFormation[num].Item2 + 1;
+				}
+			}
+
+			// Token: 0x06003CD3 RID: 15571 RVA: 0x000F1954 File Offset: 0x000EFB54
+			public void SetSpawnTroops(bool spawnTroops)
+			{
+				this.TroopSpawnActive = spawnTroops;
+			}
+
+			// Token: 0x06003CD4 RID: 15572 RVA: 0x000F195D File Offset: 0x000EFB5D
+			private int GetReservedTroopQuota(int index)
+			{
+				if (!this._spawnWithHorses || !this._reservedTroops[index].Troop.IsMounted)
+				{
+					return 1;
+				}
+				return 2;
+			}
+
+			// Token: 0x06003CD5 RID: 15573 RVA: 0x000F1984 File Offset: 0x000EFB84
+			public void OnInitialSpawnOver()
+			{
+				foreach (Formation formation in this._spawnedFormations)
+				{
+					formation.EndSpawn();
+				}
+			}
+
+			// Token: 0x04001DFC RID: 7676
+			private readonly MissionAgentSpawnLogic _spawnLogic;
+
+			// Token: 0x04001DFD RID: 7677
+			private readonly BattleSideEnum _side;
+
+			// Token: 0x04001DFE RID: 7678
+			private readonly IMissionTroopSupplier _troopSupplier;
+
+			// Token: 0x04001DFF RID: 7679
+			private BannerBearerLogic _bannerBearerLogic;
+
+			// Token: 0x04001E00 RID: 7680
+			private readonly MBArrayList<Formation> _spawnedFormations;
+
+			// Token: 0x04001E01 RID: 7681
+			private bool _spawnWithHorses;
+
+			// Token: 0x04001E02 RID: 7682
+			private float _reinforcementBatchPriority;
+
+			// Token: 0x04001E03 RID: 7683
+			private int _reinforcementQuotaRequirement;
+
+			// Token: 0x04001E04 RID: 7684
+			private int _reinforcementBatchSize;
+
+			// Token: 0x04001E05 RID: 7685
+			private int _reinforcementsSpawnedInLastBatch;
+
+			// Token: 0x04001E06 RID: 7686
+			private int _numSpawnedTroops;
+
+			// Token: 0x04001E07 RID: 7687
+			private readonly List<IAgentOriginBase> _reservedTroops = new List<IAgentOriginBase>();
+
+			// Token: 0x04001E08 RID: 7688
+			[TupleElementNames(new string[]
+			{
+				"team",
+				"origins"
+			})]
+			private List<ValueTuple<Team, List<IAgentOriginBase>>> _troopOriginsToSpawnPerTeam;
+
+			// Token: 0x04001E0D RID: 7693
+			[TupleElementNames(new string[]
+			{
+				"currentTroopIndex",
+				"troopCount"
+			})]
+			private readonly ValueTuple<int, int>[] _reinforcementSpawnedUnitCountPerFormation;
+
+			// Token: 0x04001E0E RID: 7694
+			private readonly Dictionary<IAgentOriginBase, int> _reinforcementTroopFormationAssignments;
+		}
+
+		// Token: 0x0200055D RID: 1373
+		private class SpawnPhase
+		{
+			// Token: 0x06003CD6 RID: 15574 RVA: 0x000F19D0 File Offset: 0x000EFBD0
+			public void OnInitialTroopsSpawned()
+			{
+				this.InitialSpawnedNumber = this.InitialSpawnNumber;
+				this.InitialSpawnNumber = 0;
+			}
+
+			// Token: 0x04001E0F RID: 7695
+			public int TotalSpawnNumber;
+
+			// Token: 0x04001E10 RID: 7696
+			public int InitialSpawnedNumber;
+
+			// Token: 0x04001E11 RID: 7697
+			public int InitialSpawnNumber;
+
+			// Token: 0x04001E12 RID: 7698
+			public int RemainingSpawnNumber;
+
+			// Token: 0x04001E13 RID: 7699
+			public int NumberActiveTroops;
+		}
+
+		// Token: 0x0200055E RID: 1374
+		// (Invoke) Token: 0x06003CD9 RID: 15577
+		public delegate void OnPhaseChangedDelegate();
+	}
+}

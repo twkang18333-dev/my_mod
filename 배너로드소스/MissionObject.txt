@@ -1,0 +1,399 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using TaleWorlds.DotNet;
+using TaleWorlds.Engine;
+using TaleWorlds.Library;
+using TaleWorlds.Localization;
+
+namespace TaleWorlds.MountAndBlade
+{
+	// Token: 0x02000258 RID: 600
+	public abstract class MissionObject : ScriptComponentBehavior
+	{
+		// Token: 0x170006F0 RID: 1776
+		// (get) Token: 0x06002238 RID: 8760 RVA: 0x00077E1A File Offset: 0x0007601A
+		private Mission Mission
+		{
+			get
+			{
+				return Mission.Current;
+			}
+		}
+
+		// Token: 0x170006F1 RID: 1777
+		// (get) Token: 0x06002239 RID: 8761 RVA: 0x00077E21 File Offset: 0x00076021
+		// (set) Token: 0x0600223A RID: 8762 RVA: 0x00077E29 File Offset: 0x00076029
+		public MissionObjectId Id { get; set; }
+
+		// Token: 0x170006F2 RID: 1778
+		// (get) Token: 0x0600223B RID: 8763 RVA: 0x00077E32 File Offset: 0x00076032
+		// (set) Token: 0x0600223C RID: 8764 RVA: 0x00077E3A File Offset: 0x0007603A
+		public bool IsDisabled { get; private set; }
+
+		// Token: 0x170006F3 RID: 1779
+		// (get) Token: 0x0600223D RID: 8765 RVA: 0x00077E43 File Offset: 0x00076043
+		public virtual TextObject HitObjectName { get; }
+
+		// Token: 0x0600223E RID: 8766 RVA: 0x00077E4C File Offset: 0x0007604C
+		public MissionObject()
+		{
+			MissionObjectId id = new MissionObjectId(-1, false);
+			this.Id = id;
+		}
+
+		// Token: 0x0600223F RID: 8767 RVA: 0x00077E7C File Offset: 0x0007607C
+		public virtual void SetAbilityOfFaces(bool enabled)
+		{
+			if (this.DynamicNavmeshIdStart > 0)
+			{
+				for (int i = this.DynamicNavmeshIdStart; i < this.DynamicNavmeshIdStart + 10; i++)
+				{
+					base.GameEntity.Scene.SetAbilityOfFacesWithId(i, enabled);
+				}
+			}
+		}
+
+		// Token: 0x06002240 RID: 8768 RVA: 0x00077EC4 File Offset: 0x000760C4
+		protected void SetAbilityOfConditionalFaces(bool enabled)
+		{
+			if (this.DynamicNavmeshIdStart > 0)
+			{
+				base.GameEntity.Scene.SetAbilityOfFacesWithId(this.DynamicNavmeshIdStart + 8, enabled);
+			}
+		}
+
+		// Token: 0x06002241 RID: 8769 RVA: 0x00077EF8 File Offset: 0x000760F8
+		protected internal override void OnInit()
+		{
+			base.OnInit();
+			if (!GameNetwork.IsClientOrReplay)
+			{
+				this.AttachDynamicNavmeshToEntity();
+				this.SetAbilityOfFaces(base.GameEntity.IsValid && base.GameEntity.IsVisibleIncludeParents());
+				this.SetAbilityOfConditionalFaces(base.GameEntity.IsValid && base.GameEntity.IsVisibleIncludeParents());
+			}
+		}
+
+		// Token: 0x06002242 RID: 8770 RVA: 0x00077F68 File Offset: 0x00076168
+		protected virtual void AttachDynamicNavmeshToEntity()
+		{
+			if (this.NavMeshPrefabName.Length > 0)
+			{
+				this.DynamicNavmeshIdStart = Mission.Current.GetNextDynamicNavMeshIdStart();
+				base.GameEntity.Scene.ImportNavigationMeshPrefab(this.NavMeshPrefabName, this.DynamicNavmeshIdStart);
+				this.GetEntityToAttachNavMeshFaces().AttachNavigationMeshFaces(this.DynamicNavmeshIdStart + 1, false, false, false, false, true);
+				this.GetEntityToAttachNavMeshFaces().AttachNavigationMeshFaces(this.DynamicNavmeshIdStart + 2, true, false, false, false, true);
+				this.GetEntityToAttachNavMeshFaces().AttachNavigationMeshFaces(this.DynamicNavmeshIdStart + 3, true, false, false, false, true);
+				this.GetEntityToAttachNavMeshFaces().AttachNavigationMeshFaces(this.DynamicNavmeshIdStart + 4, false, true, false, false, false);
+				this.GetEntityToAttachNavMeshFaces().AttachNavigationMeshFaces(this.DynamicNavmeshIdStart + 8, false, true, false, true, true);
+				this.SetAbilityOfFaces(base.GameEntity.IsValid && base.GameEntity.GetPhysicsState());
+			}
+		}
+
+		// Token: 0x06002243 RID: 8771 RVA: 0x00078060 File Offset: 0x00076260
+		protected virtual WeakGameEntity GetEntityToAttachNavMeshFaces()
+		{
+			return base.GameEntity;
+		}
+
+		// Token: 0x06002244 RID: 8772 RVA: 0x00078068 File Offset: 0x00076268
+		protected internal override bool OnCheckForProblems()
+		{
+			base.OnCheckForProblems();
+			bool result = false;
+			List<WeakGameEntity> list = new List<WeakGameEntity>();
+			list.Add(base.GameEntity);
+			base.GameEntity.GetChildrenRecursive(ref list);
+			bool flag = false;
+			foreach (WeakGameEntity gameEntity in list)
+			{
+				flag = (flag || (gameEntity.HasPhysicsDefinitionWithoutFlags(1) && !gameEntity.PhysicsDescBodyFlag.HasAnyFlag(BodyFlags.CommonCollisionExcludeFlagsForMissile)));
+			}
+			Vec3 scaleVector = base.GameEntity.GetGlobalFrame().rotation.GetScaleVector();
+			bool flag2 = MathF.Abs(scaleVector.x - scaleVector.y) >= 0.01f || MathF.Abs(scaleVector.x - scaleVector.z) >= 0.01f;
+			if (flag && flag2)
+			{
+				MBEditor.AddEntityWarning(base.GameEntity, "Mission object has non-uniform scale and physics object. This is not supported because any attached focusable item to this mesh will not work within this configuration.");
+				result = true;
+			}
+			return result;
+		}
+
+		// Token: 0x06002245 RID: 8773 RVA: 0x00078178 File Offset: 0x00076378
+		protected internal override void OnPreInit()
+		{
+			base.OnPreInit();
+			if (this.Mission != null)
+			{
+				int id = -1;
+				bool createdAtRuntime;
+				if (this.Mission.IsLoadingFinished)
+				{
+					createdAtRuntime = true;
+					if (!GameNetwork.IsClientOrReplay)
+					{
+						id = this.Mission.GetFreeRuntimeMissionObjectId();
+					}
+				}
+				else
+				{
+					createdAtRuntime = false;
+					id = this.Mission.GetFreeSceneMissionObjectId();
+				}
+				this.Id = new MissionObjectId(id, createdAtRuntime);
+				this.Mission.AddActiveMissionObject(this);
+			}
+			base.GameEntity.SetAsReplayEntity();
+			WeakGameEntity firstChildEntityWithTag = base.GameEntity.GetFirstChildEntityWithTag("batched_physics_entity");
+			if (firstChildEntityWithTag != WeakGameEntity.Invalid)
+			{
+				firstChildEntityWithTag.CreateVariableRatePhysics(true);
+			}
+			string name = base.GameEntity.Name;
+			foreach (WeakGameEntity weakGameEntity in base.GameEntity.GetChildren())
+			{
+				BodyFlags bodyFlag = weakGameEntity.BodyFlag;
+				if (weakGameEntity != firstChildEntityWithTag)
+				{
+					weakGameEntity.CreateVariableRatePhysics(true);
+				}
+			}
+		}
+
+		// Token: 0x06002246 RID: 8774 RVA: 0x00078288 File Offset: 0x00076488
+		public override int GetHashCode()
+		{
+			return this.Id.GetHashCode();
+		}
+
+		// Token: 0x06002247 RID: 8775 RVA: 0x000782A9 File Offset: 0x000764A9
+		protected internal virtual void OnMissionReset()
+		{
+		}
+
+		// Token: 0x06002248 RID: 8776 RVA: 0x000782AB File Offset: 0x000764AB
+		public virtual void AfterMissionStart()
+		{
+		}
+
+		// Token: 0x06002249 RID: 8777 RVA: 0x000782AD File Offset: 0x000764AD
+		public virtual void OnMissionEnded()
+		{
+		}
+
+		// Token: 0x0600224A RID: 8778 RVA: 0x000782AF File Offset: 0x000764AF
+		public virtual void OnDeploymentFinished()
+		{
+		}
+
+		// Token: 0x0600224B RID: 8779 RVA: 0x000782B1 File Offset: 0x000764B1
+		protected internal virtual bool OnHit(Agent attackerAgent, int damage, Vec3 impactPosition, Vec3 impactDirection, in MissionWeapon weapon, int affectorWeaponSlotOrMissileIndex, ScriptComponentBehavior attackerScriptComponentBehavior, out bool reportDamage, out float finalDamage)
+		{
+			reportDamage = false;
+			finalDamage = (float)damage;
+			return false;
+		}
+
+		// Token: 0x0600224C RID: 8780 RVA: 0x000782C0 File Offset: 0x000764C0
+		public void SetEnabled(bool isParentObject = false)
+		{
+			if (this.IsDisabled)
+			{
+				if (!GameNetwork.IsClientOrReplay)
+				{
+					this.SetAbilityOfFaces(true);
+				}
+				if (isParentObject && base.GameEntity != null)
+				{
+					List<WeakGameEntity> source = new List<WeakGameEntity>();
+					base.GameEntity.GetChildrenRecursive(ref source);
+					foreach (MissionObject missionObject in from sc in source.SelectMany((WeakGameEntity ac) => ac.GetScriptComponents())
+					where sc is MissionObject
+					select sc as MissionObject)
+					{
+						missionObject.SetEnabled(false);
+					}
+				}
+				Mission.Current.ActivateMissionObject(this);
+				this.IsDisabled = false;
+			}
+		}
+
+		// Token: 0x0600224D RID: 8781 RVA: 0x000783CC File Offset: 0x000765CC
+		public void SetEnabledAndMakeVisible(bool isParentObject = false, bool enableFaces = false)
+		{
+			this.SetEnabledAndMakeVisibleAux(isParentObject, enableFaces);
+			base.SetScriptComponentToTick(this.GetTickRequirement());
+			if (base.GameEntity != null)
+			{
+				List<WeakGameEntity> list = new List<WeakGameEntity>();
+				base.GameEntity.GetChildrenRecursive(ref list);
+				foreach (WeakGameEntity weakGameEntity in list)
+				{
+					foreach (ScriptComponentBehavior scriptComponentBehavior in weakGameEntity.GetScriptComponents())
+					{
+						if (scriptComponentBehavior != null)
+						{
+							scriptComponentBehavior.SetScriptComponentToTick(scriptComponentBehavior.GetTickRequirement());
+						}
+					}
+				}
+			}
+		}
+
+		// Token: 0x0600224E RID: 8782 RVA: 0x0007849C File Offset: 0x0007669C
+		private void SetEnabledAndMakeVisibleAux(bool isParentObject, bool enableFaces)
+		{
+			if (enableFaces && !GameNetwork.IsClientOrReplay)
+			{
+				this.SetAbilityOfFaces(true);
+			}
+			if (isParentObject && base.GameEntity != null)
+			{
+				List<WeakGameEntity> source = new List<WeakGameEntity>();
+				base.GameEntity.GetChildrenRecursive(ref source);
+				foreach (MissionObject missionObject in source.SelectMany((WeakGameEntity ac) => ac.GetScriptComponents()).OfType<MissionObject>())
+				{
+					missionObject.SetEnabledAndMakeVisibleAux(false, enableFaces);
+				}
+			}
+			Mission.Current.ActivateMissionObject(this);
+			this.IsDisabled = false;
+			if (base.GameEntity != null)
+			{
+				base.GameEntity.SetVisibilityExcludeParents(true);
+				base.GameEntity.SetPhysicsState(true, false);
+			}
+		}
+
+		// Token: 0x0600224F RID: 8783 RVA: 0x00078580 File Offset: 0x00076780
+		public void SetDisabled(bool isParentObject = false)
+		{
+			if (!this.IsDisabled)
+			{
+				if (!GameNetwork.IsClientOrReplay)
+				{
+					this.SetAbilityOfFaces(false);
+				}
+				if (isParentObject && base.GameEntity.IsValid)
+				{
+					List<WeakGameEntity> source = new List<WeakGameEntity>();
+					base.GameEntity.GetChildrenRecursive(ref source);
+					foreach (MissionObject missionObject in from sc in source.SelectMany((WeakGameEntity ac) => ac.GetScriptComponents())
+					where sc is MissionObject
+					select sc as MissionObject)
+					{
+						missionObject.SetDisabled(false);
+					}
+				}
+				Mission.Current.DeactivateMissionObject(this);
+				this.IsDisabled = true;
+			}
+		}
+
+		// Token: 0x06002250 RID: 8784 RVA: 0x0007868C File Offset: 0x0007688C
+		public void SetDisabledAndMakeInvisible(bool isParentObject = false, bool disableFaces = false)
+		{
+			if (disableFaces && !GameNetwork.IsClientOrReplay)
+			{
+				this.SetAbilityOfFaces(false);
+			}
+			if (isParentObject && base.GameEntity.IsValid)
+			{
+				List<WeakGameEntity> source = new List<WeakGameEntity>();
+				base.GameEntity.GetChildrenRecursive(ref source);
+				foreach (MissionObject missionObject in from sc in source.SelectMany((WeakGameEntity ac) => ac.GetScriptComponents())
+				where sc is MissionObject
+				select sc as MissionObject)
+				{
+					missionObject.SetDisabledAndMakeInvisible(false, disableFaces);
+				}
+			}
+			Mission.Current.DeactivateMissionObject(this);
+			this.IsDisabled = true;
+			if (base.GameEntity.IsValid)
+			{
+				base.GameEntity.SetVisibilityExcludeParents(false);
+				base.GameEntity.SetPhysicsState(false, false);
+				base.SetScriptComponentToTick(this.GetTickRequirement());
+			}
+		}
+
+		// Token: 0x06002251 RID: 8785 RVA: 0x000787CC File Offset: 0x000769CC
+		protected override void OnRemoved(int removeReason)
+		{
+			base.OnRemoved(removeReason);
+			if (!GameNetwork.IsClientOrReplay)
+			{
+				this.SetAbilityOfFaces(false);
+			}
+			if (this.Mission != null)
+			{
+				this.Mission.OnMissionObjectRemoved(this, removeReason);
+			}
+		}
+
+		// Token: 0x06002252 RID: 8786 RVA: 0x000787F9 File Offset: 0x000769F9
+		public virtual void OnEndMission()
+		{
+		}
+
+		// Token: 0x170006F4 RID: 1780
+		// (get) Token: 0x06002253 RID: 8787 RVA: 0x000787FB File Offset: 0x000769FB
+		public bool CreatedAtRuntime
+		{
+			get
+			{
+				return this.Id.CreatedAtRuntime;
+			}
+		}
+
+		// Token: 0x06002254 RID: 8788 RVA: 0x00078808 File Offset: 0x00076A08
+		protected internal override bool MovesEntity()
+		{
+			return true;
+		}
+
+		// Token: 0x06002255 RID: 8789 RVA: 0x0007880C File Offset: 0x00076A0C
+		public virtual void AddStuckMissile(GameEntity missileEntity)
+		{
+			base.GameEntity.AddChild(missileEntity.WeakEntity, false);
+		}
+
+		// Token: 0x04000D4E RID: 3406
+		public const int MaxNavMeshPerDynamicObject = 50;
+
+		// Token: 0x04000D51 RID: 3409
+		[EditableScriptComponentVariable(true, "")]
+		protected string NavMeshPrefabName = "";
+
+		// Token: 0x04000D52 RID: 3410
+		protected int DynamicNavmeshIdStart;
+
+		// Token: 0x0200053C RID: 1340
+		protected enum DynamicNavmeshLocalIds
+		{
+			// Token: 0x04001D77 RID: 7543
+			Inside = 1,
+			// Token: 0x04001D78 RID: 7544
+			Enter,
+			// Token: 0x04001D79 RID: 7545
+			Exit,
+			// Token: 0x04001D7A RID: 7546
+			Blocker,
+			// Token: 0x04001D7B RID: 7547
+			Extra1,
+			// Token: 0x04001D7C RID: 7548
+			Extra2,
+			// Token: 0x04001D7D RID: 7549
+			Extra3,
+			// Token: 0x04001D7E RID: 7550
+			ConditionalBlocker,
+			// Token: 0x04001D7F RID: 7551
+			Reserved1,
+			// Token: 0x04001D80 RID: 7552
+			Count
+		}
+	}
+}
