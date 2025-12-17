@@ -1,0 +1,435 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using TaleWorlds.CampaignSystem.CharacterDevelopment;
+using TaleWorlds.CampaignSystem.ComponentInterfaces;
+using TaleWorlds.CampaignSystem.Extensions;
+using TaleWorlds.Core;
+using TaleWorlds.Library;
+using TaleWorlds.Localization;
+
+namespace TaleWorlds.CampaignSystem.GameComponents
+{
+	// Token: 0x02000100 RID: 256
+	public class DefaultCharacterDevelopmentModel : CharacterDevelopmentModel
+	{
+		// Token: 0x0600169F RID: 5791 RVA: 0x00067607 File Offset: 0x00065807
+		public DefaultCharacterDevelopmentModel()
+		{
+			this.InitializeSkillsRequiredForLevel();
+			this.InitializeXpRequiredForSkillLevel();
+		}
+
+		// Token: 0x060016A0 RID: 5792 RVA: 0x00067638 File Offset: 0x00065838
+		public void InitializeSkillsRequiredForLevel()
+		{
+			int num = 1000;
+			int num2 = 1;
+			this._skillsRequiredForLevel[0] = 0;
+			this._skillsRequiredForLevel[1] = 1;
+			for (int i = 2; i < this._skillsRequiredForLevel.Length; i++)
+			{
+				num2 += num;
+				this._skillsRequiredForLevel[i] = num2;
+				num += 1000 + num / 5;
+			}
+		}
+
+		// Token: 0x060016A1 RID: 5793 RVA: 0x0006768C File Offset: 0x0006588C
+		public void InitializeXpRequiredForSkillLevel()
+		{
+			int num = 30;
+			this._xpRequiredForSkillLevel[0] = num;
+			for (int i = 1; i < 1024; i++)
+			{
+				num += 10 + i;
+				this._xpRequiredForSkillLevel[i] = this._xpRequiredForSkillLevel[i - 1] + num;
+			}
+			if (Campaign.Current.Options.AccelerationMode == GameAccelerationMode.Fast)
+			{
+				for (int j = 0; j < this._xpRequiredForSkillLevel.Length; j++)
+				{
+					this._xpRequiredForSkillLevel[j] = (int)((float)this._xpRequiredForSkillLevel[j] * 0.3f);
+				}
+			}
+		}
+
+		// Token: 0x1700062D RID: 1581
+		// (get) Token: 0x060016A2 RID: 5794 RVA: 0x0006770D File Offset: 0x0006590D
+		public override int MaxFocusPerSkill
+		{
+			get
+			{
+				return 5;
+			}
+		}
+
+		// Token: 0x1700062E RID: 1582
+		// (get) Token: 0x060016A3 RID: 5795 RVA: 0x00067710 File Offset: 0x00065910
+		public override int MaxAttribute
+		{
+			get
+			{
+				return 10;
+			}
+		}
+
+		// Token: 0x060016A4 RID: 5796 RVA: 0x00067714 File Offset: 0x00065914
+		public override int SkillsRequiredForLevel(int level)
+		{
+			if (level > 62)
+			{
+				return Campaign.Current.Models.CharacterDevelopmentModel.GetMaxSkillPoint();
+			}
+			return this._skillsRequiredForLevel[level];
+		}
+
+		// Token: 0x060016A5 RID: 5797 RVA: 0x00067738 File Offset: 0x00065938
+		public override int GetMaxSkillPoint()
+		{
+			return int.MaxValue;
+		}
+
+		// Token: 0x060016A6 RID: 5798 RVA: 0x0006773F File Offset: 0x0006593F
+		public override int GetXpRequiredForSkillLevel(int skillLevel)
+		{
+			if (skillLevel > 1024)
+			{
+				skillLevel = 1024;
+			}
+			if (skillLevel <= 0)
+			{
+				return 0;
+			}
+			return this._xpRequiredForSkillLevel[skillLevel - 1];
+		}
+
+		// Token: 0x060016A7 RID: 5799 RVA: 0x00067760 File Offset: 0x00065960
+		public override int GetSkillLevelChange(Hero hero, SkillObject skill, float skillXp)
+		{
+			CharacterDevelopmentModel characterDevelopmentModel = Campaign.Current.Models.CharacterDevelopmentModel;
+			int num = 0;
+			int skillValue = hero.GetSkillValue(skill);
+			for (int i = 0; i < 1024 - skillValue; i++)
+			{
+				int num2 = skillValue + i;
+				if (num2 < 1023)
+				{
+					if (skillXp < (float)characterDevelopmentModel.GetXpRequiredForSkillLevel(num2 + 1))
+					{
+						break;
+					}
+					num++;
+				}
+			}
+			return num;
+		}
+
+		// Token: 0x060016A8 RID: 5800 RVA: 0x000677BC File Offset: 0x000659BC
+		public override int GetXpAmountForSkillLevelChange(Hero hero, SkillObject skill, int skillLevelChange)
+		{
+			CharacterDevelopmentModel characterDevelopmentModel = Campaign.Current.Models.CharacterDevelopmentModel;
+			int skillValue = hero.GetSkillValue(skill);
+			return characterDevelopmentModel.GetXpRequiredForSkillLevel(skillValue + skillLevelChange + 1) - characterDevelopmentModel.GetXpRequiredForSkillLevel(skillValue + 1);
+		}
+
+		// Token: 0x060016A9 RID: 5801 RVA: 0x000677F8 File Offset: 0x000659F8
+		public override void GetTraitLevelForTraitXp(Hero hero, TraitObject trait, int xpValue, out int traitLevel, out int clampedTraitXp)
+		{
+			clampedTraitXp = xpValue;
+			int num = (trait.MinValue < -1) ? -6000 : ((trait.MinValue == -1) ? -2500 : 0);
+			int num2 = (trait.MaxValue > 1) ? 6000 : ((trait.MaxValue == 1) ? 2500 : 0);
+			if (xpValue > num2)
+			{
+				clampedTraitXp = num2;
+			}
+			else if (xpValue < num)
+			{
+				clampedTraitXp = num;
+			}
+			traitLevel = ((clampedTraitXp <= -4000) ? -2 : ((clampedTraitXp <= -1000) ? -1 : ((clampedTraitXp < 1000) ? 0 : ((clampedTraitXp < 4000) ? 1 : 2))));
+			if (traitLevel < trait.MinValue)
+			{
+				traitLevel = trait.MinValue;
+				return;
+			}
+			if (traitLevel > trait.MaxValue)
+			{
+				traitLevel = trait.MaxValue;
+			}
+		}
+
+		// Token: 0x060016AA RID: 5802 RVA: 0x000678C1 File Offset: 0x00065AC1
+		public override int GetTraitXpRequiredForTraitLevel(TraitObject trait, int traitLevel)
+		{
+			if (traitLevel < -1)
+			{
+				return -4000;
+			}
+			if (traitLevel == -1)
+			{
+				return -1000;
+			}
+			if (traitLevel == 0)
+			{
+				return 0;
+			}
+			if (traitLevel != 1)
+			{
+				return 4000;
+			}
+			return 1000;
+		}
+
+		// Token: 0x1700062F RID: 1583
+		// (get) Token: 0x060016AB RID: 5803 RVA: 0x000678EB File Offset: 0x00065AEB
+		public override int AttributePointsAtStart
+		{
+			get
+			{
+				return 15;
+			}
+		}
+
+		// Token: 0x17000630 RID: 1584
+		// (get) Token: 0x060016AC RID: 5804 RVA: 0x000678EF File Offset: 0x00065AEF
+		public override int LevelsPerAttributePoint
+		{
+			get
+			{
+				return 4;
+			}
+		}
+
+		// Token: 0x17000631 RID: 1585
+		// (get) Token: 0x060016AD RID: 5805 RVA: 0x000678F2 File Offset: 0x00065AF2
+		public override int FocusPointsPerLevel
+		{
+			get
+			{
+				return 1;
+			}
+		}
+
+		// Token: 0x17000632 RID: 1586
+		// (get) Token: 0x060016AE RID: 5806 RVA: 0x000678F5 File Offset: 0x00065AF5
+		public override int FocusPointsAtStart
+		{
+			get
+			{
+				return 5;
+			}
+		}
+
+		// Token: 0x17000633 RID: 1587
+		// (get) Token: 0x060016AF RID: 5807 RVA: 0x000678F8 File Offset: 0x00065AF8
+		public override int MaxSkillRequiredForEpicPerkBonus
+		{
+			get
+			{
+				return 250;
+			}
+		}
+
+		// Token: 0x17000634 RID: 1588
+		// (get) Token: 0x060016B0 RID: 5808 RVA: 0x000678FF File Offset: 0x00065AFF
+		public override int MinSkillRequiredForEpicPerkBonus
+		{
+			get
+			{
+				return 200;
+			}
+		}
+
+		// Token: 0x060016B1 RID: 5809 RVA: 0x00067908 File Offset: 0x00065B08
+		public override ExplainedNumber CalculateLearningLimit(IReadOnlyPropertyOwner<CharacterAttribute> characterAttributes, int focusValue, SkillObject skill, bool includeDescriptions = false)
+		{
+			float num = 0f;
+			ExplainedNumber result = new ExplainedNumber(0f, includeDescriptions, null);
+			foreach (CharacterAttribute attribute in skill.Attributes)
+			{
+				num += (float)characterAttributes.GetPropertyValue(attribute);
+			}
+			float num2 = num / (float)skill.Attributes.Length;
+			result.Add(Math.Max(0f, (num2 - 1f) * 10f), DefaultCharacterDevelopmentModel._attributeEffectText, null);
+			result.Add((float)(focusValue * 30), DefaultCharacterDevelopmentModel._skillFocusText, null);
+			result.LimitMin(0f);
+			return result;
+		}
+
+		// Token: 0x060016B2 RID: 5810 RVA: 0x000679AC File Offset: 0x00065BAC
+		public override ExplainedNumber CalculateLearningRate(IReadOnlyPropertyOwner<CharacterAttribute> characterAttributes, int focusValue, int skillValue, SkillObject skill, bool includeDescriptions = false)
+		{
+			ExplainedNumber result = new ExplainedNumber(1.25f, includeDescriptions, null);
+			float num = 0f;
+			foreach (CharacterAttribute attribute in skill.Attributes)
+			{
+				num += (float)characterAttributes.GetPropertyValue(attribute);
+			}
+			float num2 = num / (float)skill.Attributes.Length;
+			result.AddFactor(0.4f * num2, new TextObject("{=jlrvzwFb}Attribute Effect", null));
+			int num3 = MathF.Round(Campaign.Current.Models.CharacterDevelopmentModel.CalculateLearningLimit(characterAttributes, focusValue, skill, false).ResultNumber);
+			result.AddFactor((float)focusValue * 1f, DefaultCharacterDevelopmentModel._skillFocusText);
+			if (skillValue > num3)
+			{
+				int num4 = skillValue - num3;
+				result.AddFactor(-1f - 0.1f * (float)num4, DefaultCharacterDevelopmentModel._overLimitText);
+			}
+			result.LimitMin(0f);
+			return result;
+		}
+
+		// Token: 0x060016B3 RID: 5811 RVA: 0x00067A98 File Offset: 0x00065C98
+		public override SkillObject GetNextSkillToAddFocus(Hero hero)
+		{
+			SkillObject result = null;
+			float num = float.MinValue;
+			foreach (SkillObject skillObject in Skills.All)
+			{
+				if (hero.HeroDeveloper.CanAddFocusToSkill(skillObject))
+				{
+					int focus = hero.HeroDeveloper.GetFocus(skillObject);
+					float num2 = (float)hero.GetSkillValue(skillObject) - Campaign.Current.Models.CharacterDevelopmentModel.CalculateLearningLimit(hero.CharacterAttributes, focus, skillObject, false).ResultNumber;
+					if (num2 > num)
+					{
+						num = num2;
+						result = skillObject;
+					}
+				}
+			}
+			return result;
+		}
+
+		// Token: 0x060016B4 RID: 5812 RVA: 0x00067B44 File Offset: 0x00065D44
+		public override CharacterAttribute GetNextAttributeToUpgrade(Hero hero)
+		{
+			CharacterAttribute result = null;
+			float num = float.MinValue;
+			using (List<CharacterAttribute>.Enumerator enumerator = Attributes.All.GetEnumerator())
+			{
+				while (enumerator.MoveNext())
+				{
+					CharacterAttribute currentAttribute = enumerator.Current;
+					int attributeValue = hero.GetAttributeValue(currentAttribute);
+					if (attributeValue < Campaign.Current.Models.CharacterDevelopmentModel.MaxAttribute)
+					{
+						float num2 = 0f;
+						if (attributeValue == 0)
+						{
+							num2 = float.MaxValue;
+						}
+						else
+						{
+							float num3 = 0f;
+							List<SkillObject> list = (from skill in Skills.All
+							where skill.Attributes.Contains(currentAttribute)
+							select skill).ToList<SkillObject>();
+							foreach (SkillObject skill2 in list)
+							{
+								num3 += MathF.Max(0f, (float)(75 + hero.GetSkillValue(skill2)) - Campaign.Current.Models.CharacterDevelopmentModel.CalculateLearningLimit(hero.CharacterAttributes, hero.HeroDeveloper.GetFocus(skill2), skill2, false).ResultNumber);
+							}
+							num2 += num3 / (float)list.Count;
+							int num4 = 1;
+							foreach (CharacterAttribute characterAttribute in Attributes.All)
+							{
+								if (characterAttribute != currentAttribute)
+								{
+									int attributeValue2 = hero.GetAttributeValue(characterAttribute);
+									if (num4 < attributeValue2)
+									{
+										num4 = attributeValue2;
+									}
+								}
+							}
+							float num5 = MathF.Sqrt((float)num4 / (float)attributeValue);
+							num2 *= num5;
+						}
+						if (num2 > num)
+						{
+							num = num2;
+							result = currentAttribute;
+						}
+					}
+				}
+			}
+			return result;
+		}
+
+		// Token: 0x060016B5 RID: 5813 RVA: 0x00067D4C File Offset: 0x00065F4C
+		public override PerkObject GetNextPerkToChoose(Hero hero, PerkObject perk)
+		{
+			PerkObject result = perk;
+			if (perk.AlternativePerk != null && MBRandom.RandomFloat < 0.5f)
+			{
+				result = perk.AlternativePerk;
+			}
+			return result;
+		}
+
+		// Token: 0x04000763 RID: 1891
+		private const int MaxCharacterLevels = 62;
+
+		// Token: 0x04000764 RID: 1892
+		private const int SkillPointsAtLevel1 = 1;
+
+		// Token: 0x04000765 RID: 1893
+		private const int SkillPointsGainNeededInitialValue = 1000;
+
+		// Token: 0x04000766 RID: 1894
+		private const int SkillPointsGainNeededIncreasePerLevel = 1000;
+
+		// Token: 0x04000767 RID: 1895
+		private readonly int[] _skillsRequiredForLevel = new int[63];
+
+		// Token: 0x04000768 RID: 1896
+		private const int FocusPointsPerLevelConst = 1;
+
+		// Token: 0x04000769 RID: 1897
+		private const int LevelsPerAttributePointConst = 4;
+
+		// Token: 0x0400076A RID: 1898
+		private const int FocusPointsAtStartConst = 5;
+
+		// Token: 0x0400076B RID: 1899
+		private const int AttributePointsAtStartConst = 15;
+
+		// Token: 0x0400076C RID: 1900
+		private const int MaxSkillLevels = 1024;
+
+		// Token: 0x0400076D RID: 1901
+		private readonly int[] _xpRequiredForSkillLevel = new int[1024];
+
+		// Token: 0x0400076E RID: 1902
+		private const int XpRequirementForFirstLevel = 30;
+
+		// Token: 0x0400076F RID: 1903
+		private const int MaxSkillPoint = 2147483647;
+
+		// Token: 0x04000770 RID: 1904
+		private const float BaseLearningRate = 1.25f;
+
+		// Token: 0x04000771 RID: 1905
+		private const int TraitThreshold2 = 4000;
+
+		// Token: 0x04000772 RID: 1906
+		private const int TraitMaxValue1 = 2500;
+
+		// Token: 0x04000773 RID: 1907
+		private const int TraitThreshold1 = 1000;
+
+		// Token: 0x04000774 RID: 1908
+		private const int TraitMaxValue2 = 6000;
+
+		// Token: 0x04000775 RID: 1909
+		private const int SkillLevelVariant = 10;
+
+		// Token: 0x04000776 RID: 1910
+		private static readonly TextObject _attributeEffectText = new TextObject("{=jlrvzwFb}Attribute Effect", null);
+
+		// Token: 0x04000777 RID: 1911
+		private static readonly TextObject _skillFocusText = new TextObject("{=MRktqZwu}Skill Focus", null);
+
+		// Token: 0x04000778 RID: 1912
+		private static readonly TextObject _overLimitText = new TextObject("{=bcA7ZuyO}Learning Limit Exceeded", null);
+	}
+}
